@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Budget Trace — Wireframes</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<div id="root"></div>
+
+<div class="tweaks-panel" id="tweaks">
+  <h4>Tweaks <button class="icon-btn" id="tweaks-close" style="border:none;background:transparent;font-size:18px;cursor:pointer;">×</button></h4>
+  <div class="group">
+    <div class="group-label">Color strategy</div>
+    <select id="t-color">
+      <option value="full">Pastel category colors (sketch)</option>
+      <option value="bw-accent">B&W + accent for over-budget</option>
+      <option value="bw-only">Pure b&w</option>
+    </select>
+  </div>
+  <div class="group">
+    <div class="group-label">Period model</div>
+    <select id="t-period">
+      <option value="month">1st of month → 1st of next</option>
+      <option value="payday">User-defined (payday cycle)</option>
+    </select>
+  </div>
+  <div class="group">
+    <div class="group-label">Savings role</div>
+    <select id="t-savings">
+      <option value="bucket">A bucket like the others</option>
+      <option value="computed">Computed = income − spend</option>
+    </select>
+  </div>
+  <div class="group">
+    <div class="group-label">Treemap default</div>
+    <select id="t-treemap">
+      <option value="A">A · classic squarified</option>
+      <option value="B">B · breadcrumb + fill</option>
+      <option value="C">C · marimekko rows</option>
+    </select>
+  </div>
+  <div class="muted" style="font-size:11px">
+    Tap any tile to drill in. Click <b>tweaks</b> in the toolbar to hide.
+  </div>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="screen-treemap.jsx"></script>
+<script type="text/babel" src="screen-upload.jsx"></script>
+<script type="text/babel" src="screen-perf.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "colorStrategy": "full",
+  "periodModel": "month",
+  "savingsRole": "bucket",
+  "treemapDefault": "A"
+}/*EDITMODE-END*/;
+
+function VariationLabel({ n, title, sub }) {
+  return (
+    <div className="v-label">
+      <span className="v-num">{n}</span>
+      <b style={{ fontWeight: 700 }}>{title}</b>
+      {sub && <span className="muted" style={{ marginLeft: 8 }}>{sub}</span>}
+    </div>
+  );
+}
+
+function Screen({ title, sub, children, screenLabel }) {
+  return (
+    <section data-screen-label={screenLabel}>
+      <div className="page-head">
+        <h2 className="display">{title}</h2>
+        <div className="sub">{sub}</div>
+      </div>
+      <div className="variations">{children}</div>
+    </section>
+  );
+}
+
+function App() {
+  const [tab, setTab] = React.useState(() => localStorage.getItem('bt-tab') || 'treemap');
+  const [drilled, setDrilled] = React.useState(null);
+  const [drilledB, setDrilledB] = React.useState(null);
+  const [drilledC, setDrilledC] = React.useState(null);
+  const [drilledD, setDrilledD] = React.useState(null);
+  const [txns] = React.useState(() => makeTransactions());
+
+  React.useEffect(() => { localStorage.setItem('bt-tab', tab); }, [tab]);
+
+  // Tweaks plumbing
+  React.useEffect(() => {
+    const apply = (k, v) => {
+      if (k === 'colorStrategy') {
+        document.body.classList.remove('bw-only','bw-accent');
+        if (v === 'bw-only') document.body.classList.add('bw-only');
+        if (v === 'bw-accent') document.body.classList.add('bw-accent');
+      }
+      // other tweaks are visual hints only in this wireframe
+    };
+    Object.entries(TWEAK_DEFAULTS).forEach(([k,v]) => apply(k,v));
+
+    const handler = (e) => {
+      if (e.data?.type === '__activate_edit_mode') document.getElementById('tweaks').classList.add('open');
+      if (e.data?.type === '__deactivate_edit_mode') document.getElementById('tweaks').classList.remove('open');
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+
+    // wire selects
+    const wire = (id, key) => {
+      const el = document.getElementById(id);
+      el.value = TWEAK_DEFAULTS[key];
+      el.addEventListener('change', () => {
+        TWEAK_DEFAULTS[key] = el.value;
+        apply(key, el.value);
+        window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: el.value } }, '*');
+      });
+    };
+    wire('t-color', 'colorStrategy');
+    wire('t-period', 'periodModel');
+    wire('t-savings', 'savingsRole');
+    wire('t-treemap', 'treemapDefault');
+    document.getElementById('tweaks-close').onclick = () => document.getElementById('tweaks').classList.remove('open');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const tabs = [
+    ['treemap', 'Treemap'],
+    ['upload', 'Upload + Categorize'],
+    ['perf', 'Performance'],
+    ['summary', 'Period Summary'],
+    ['flow', 'Flow notes'],
+  ];
+
+  return (
+    <div>
+      <header style={{ padding: '20px 28px 4px', display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+        <h1 className="display" style={{ margin: 0, fontSize: 38, fontWeight: 700 }}>
+          <span className="scribble">Budget Trace</span> · wireframes
+        </h1>
+        <span className="muted" style={{ fontSize: 13 }}>
+          5 screens × 3 variations · phone + desktop · low-fi
+        </span>
+      </header>
+
+      <div className="tabs">
+        {tabs.map(([id, label]) => (
+          <button key={id} className={'tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'treemap' && (
+        <Screen
+          title="Treemap — root + drill-down"
+          sub="Tap any tile to drill in; back to step out. Three takes on the same tree."
+          screenLabel="01 Treemap">
+          <div className="variation">
+            <VariationLabel n="A" title="Classic squarified" sub="closest to your sketch" />
+            <TreemapA drilled={drilled} setDrilled={setDrilled} />
+            <div className="sticky" style={{ marginTop: 6 }}>
+              tile size = budgeted $. tap to zoom. corner box selects.
+            </div>
+          </div>
+          <div className="variation">
+            <VariationLabel n="B" title="Breadcrumb + inline fill" sub="actual vs budget on the tile" />
+            <TreemapB drilled={drilledB} setDrilled={setDrilledB} />
+            <div className="sticky" style={{ marginTop: 6, background: '#d0e8c5' }}>
+              shaded fill = actual % of budget. red overhang = over.
+            </div>
+          </div>
+          <div className="variation">
+            <VariationLabel n="C" title="Marimekko rows" sub="text-friendly, easier on small phones" />
+            <TreemapC drilled={drilledC} setDrilled={setDrilledC} />
+            <div className="sticky" style={{ marginTop: 6, background: '#fcd6c6' }}>
+              rows scale by $. better for long category names.
+            </div>
+          </div>
+          <div className="variation">
+            <VariationLabel n="D" title="Desktop · tree + map" sub="full editor view" />
+            <TreemapDesktop drilled={drilledD} setDrilled={setDrilledD} />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'upload' && (
+        <Screen
+          title="Upload expenses + auto-categorize"
+          sub="Drop a CSV; backend tags what it can; you triage the unknowns."
+          screenLabel="02 Upload">
+          <div className="variation">
+            <VariationLabel n="A" title="Phone · review queue" sub="only unknowns surface" />
+            <UploadA txns={txns} />
+          </div>
+          <div className="variation">
+            <VariationLabel n="B" title="Phone · expense inbox" sub="every txn w/ inferred chip" />
+            <UploadB txns={txns} />
+          </div>
+          <div className="variation">
+            <VariationLabel n="C" title="Desktop · upload + summary" sub="sticky 'review unknowns' CTA" />
+            <UploadC txns={txns} />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'perf' && (
+        <Screen
+          title="Budget performance"
+          sub="Cumulative actual (line) vs ideal (dotted). Color signals on/over."
+          screenLabel="03 Performance">
+          <div className="variation">
+            <VariationLabel n="A" title="Phone · stacked small-multiples" sub="matches your sketch" />
+            <PerfA />
+          </div>
+          <div className="variation">
+            <VariationLabel n="B" title="Phone · single chart + chips" sub="focus on one category" />
+            <PerfB />
+          </div>
+          <div className="variation">
+            <VariationLabel n="C" title="Desktop · grid of small multiples" sub="see everything at once" />
+            <PerfC />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'summary' && (
+        <Screen
+          title="Period summary"
+          sub="Mar 1 → Mar 31. The 'how am I doing this month' glance."
+          screenLabel="04 Summary">
+          <div className="variation">
+            <VariationLabel n="A" title="Phone · big-number savings" sub="emphasizes 'how much I'm saving'" />
+            <SummaryA />
+          </div>
+          <div className="variation">
+            <VariationLabel n="B" title="Phone · KPI dashboard" sub="quad of metrics + flow" />
+            <SummaryB />
+          </div>
+          <div className="variation">
+            <VariationLabel n="C" title="Desktop · overview" sub="categories table + review side panel" />
+            <SummaryC />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'flow' && (
+        <section data-screen-label="05 Flow">
+          <div className="page-head">
+            <h2 className="display">Flow & open questions</h2>
+            <div className="sub">How the screens connect, and the calls I made on your behalf.</div>
+          </div>
+          <div style={{ padding: '8px 28px 60px', maxWidth: 880 }}>
+            <div className="sketch-box" style={{ padding: 18, marginBottom: 16 }}>
+              <div className="display" style={{ fontSize: 22, marginBottom: 8 }}>The loop</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', fontFamily: 'var(--hand)', fontSize: 14 }}>
+                <span className="cat-chip">Treemap (define)</span>
+                <span>→</span>
+                <span className="cat-chip">Upload CSV</span>
+                <span>→</span>
+                <span className="cat-chip">Auto-categorize</span>
+                <span>→</span>
+                <span className="cat-chip unknown">Review unknowns</span>
+                <span>→</span>
+                <span className="cat-chip">Performance</span>
+                <span>→</span>
+                <span className="cat-chip">Summary</span>
+              </div>
+            </div>
+
+            <div className="sketch-box" style={{ padding: 18, marginBottom: 16 }}>
+              <div className="display" style={{ fontSize: 22, marginBottom: 8 }}>Decisions I made (tell me to change)</div>
+              <ul style={{ fontFamily: 'var(--hand)', fontSize: 14, lineHeight: 1.6, paddingLeft: 20, margin: 0 }}>
+                <li><b>Period</b>: 1st of month → 1st of next, with payday-cycle as a tweak.</li>
+                <li><b>Savings</b>: shown as a bucket you "spend into" — so the treemap stays one consistent metaphor. Toggle to "computed = income − spend" via tweaks.</li>
+                <li><b>Unknowns</b>: surfaced three ways across the variants — a tile in the treemap (A), a sticky banner on the inbox (B/upload), and a side panel on the desktop summary (C). Pick whichever feels right.</li>
+                <li><b>Drill-down</b>: tap-to-zoom only (no pinch). Back arrow returns one level.</li>
+                <li><b>Charts</b>: cumulative actual vs straight-line ideal. Red end-dot when over budget. No daily-bar variant — your sketch was clear.</li>
+              </ul>
+            </div>
+
+            <div className="sketch-box" style={{ padding: 18, marginBottom: 16 }}>
+              <div className="display" style={{ fontSize: 22, marginBottom: 8 }}>Open questions</div>
+              <ul style={{ fontFamily: 'var(--hand)', fontSize: 14, lineHeight: 1.6, paddingLeft: 20, margin: 0 }}>
+                <li>Which treemap variant should I take to hi-fi? (A is closest to your sketch; B adds the most info; C scales best to many categories.)</li>
+                <li>Do you want a way to <i>edit</i> the budget by dragging tile borders, or just numeric inputs in a side sheet?</li>
+                <li>Do you want a "rule" UX after assigning an unknown ("always categorize Amazon as Shopping"), or one-off only?</li>
+                <li>Should the performance view ever show a 12-month roll-up, or stay strictly within the active period?</li>
+              </ul>
+            </div>
+
+            <div className="sticky" style={{ maxWidth: 'none', display: 'inline-block' }}>
+              Toggle the toolbar's <b>Tweaks</b> to flip color strategy, period model, etc.
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

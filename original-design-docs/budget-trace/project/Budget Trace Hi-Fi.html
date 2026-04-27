@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Budget Trace — Hi-Fi</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="hifi/tokens.css?v=3" />
+<style>
+  html, body { margin: 0; padding: 0; background: #EFEBE1; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    color: #121110;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page {
+    max-width: 1400px;
+    margin: 0 auto;
+    padding: 64px 40px 120px;
+  }
+  .hero {
+    margin-bottom: 56px;
+    padding-bottom: 36px;
+    border-bottom: 1px solid rgba(18,17,16,0.1);
+  }
+  .hero h1 {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    font-size: 48px;
+    font-weight: 600;
+    letter-spacing: -0.03em;
+    margin: 0 0 8px;
+  }
+  .hero .eyebrow {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.14em;
+    color: rgba(18,17,16,0.5);
+    margin-bottom: 12px;
+    font-weight: 500;
+  }
+  .hero p {
+    font-size: 16px;
+    color: rgba(18,17,16,0.6);
+    max-width: 680px;
+    margin: 0;
+    line-height: 1.55;
+  }
+  .legend {
+    display: flex;
+    gap: 24px;
+    margin-top: 24px;
+    font-size: 13px;
+    color: rgba(18,17,16,0.6);
+  }
+  .legend span {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .dot-pos { width: 10px; height: 10px; border-radius: 3px; background: #2E7D53; }
+  .dot-neg { width: 10px; height: 10px; border-radius: 3px; background: #B4432F; }
+  .dot-neu { width: 10px; height: 10px; border-radius: 3px; background: #C8C4B7; }
+
+  .grid-2x2 {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 28px;
+  }
+  .grid-1x2 {
+    display: grid;
+    grid-template-columns: 430px 1fr;
+    gap: 28px;
+    align-items: start;
+  }
+</style>
+</head>
+<body>
+
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="hifi/hifi-icons.jsx"></script>
+<script type="text/babel" src="hifi/hifi-shell.jsx"></script>
+<script type="text/babel" src="hifi/hifi-plan.jsx"></script>
+<script type="text/babel" src="hifi/hifi-expenses.jsx"></script>
+<script type="text/babel" src="hifi/hifi-results.jsx"></script>
+<script type="text/babel" src="hifi/hifi-summary.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+
+function App() {
+  const [d1, sd1] = React.useState(null);
+  const [d2, sd2] = React.useState(null);
+  const [d3, sd3] = React.useState(null);
+  const [d4, sd4] = React.useState(null);
+
+  const [txns1, setTxns1] = React.useState(() => makeTransactions());
+  const [txns2, setTxns2] = React.useState(() => makeTransactions());
+
+  const makeOnAssign = (setter) => (txn, cat) => {
+    setter(ts => ts.map(t => t === txn ? { ...t, cat } : t));
+  };
+
+  const onNav = () => {};
+
+  return (
+    <div className="page">
+      <header className="hero">
+        <div className="eyebrow">Budget Trace · Hi-Fi</div>
+        <h1>Screens</h1>
+        <p>
+          Plan is presented in all four variants — light and dark, mobile and desktop.
+          Expenses, Results, and Summary follow in dark only (mobile + desktop).
+          Same token system throughout: SF stack, warm neutrals, thin hairlines, green/red reserved for financial meaning.
+        </p>
+        <div className="legend">
+          <span><span className="dot-neu"></span>Neutral tiles (plan has no actuals)</span>
+          <span><span className="dot-pos"></span>Green: under budget / saved</span>
+          <span><span className="dot-neg"></span>Red: over budget / overspend</span>
+        </div>
+      </header>
+
+      {/* =================== PLAN =================== */}
+      <VariantGroup
+        title="Plan"
+        sub="Theoretical budget. Classic treemap on desktop · marimekko rows on mobile. Tiles are stepped neutrals with subtle frosted glass; green/red stays reserved for Results.">
+        <div className="grid-2x2">
+          <VariantCell mode="light" device="Mobile">
+            <PhoneFrameHF mode="light">
+              <PlanPhoneHF drilled={d1} setDrilled={sd1} onNav={onNav} />
+            </PhoneFrameHF>
+          </VariantCell>
+          <VariantCell mode="dark" device="Mobile">
+            <PhoneFrameHF mode="dark">
+              <PlanPhoneHF drilled={d2} setDrilled={sd2} onNav={onNav} />
+            </PhoneFrameHF>
+          </VariantCell>
+          <VariantCell mode="light" device="Desktop">
+            <DesktopFrameHF mode="light">
+              <PlanDesktopHF drilled={d3} setDrilled={sd3} onNav={onNav} />
+            </DesktopFrameHF>
+          </VariantCell>
+          <VariantCell mode="dark" device="Desktop">
+            <DesktopFrameHF mode="dark">
+              <PlanDesktopHF drilled={d4} setDrilled={sd4} onNav={onNav} />
+            </DesktopFrameHF>
+          </VariantCell>
+        </div>
+      </VariantGroup>
+
+      {/* =================== EXPENSES (dark only) =================== */}
+      <VariantGroup
+        title="Expenses"
+        sub="Import real transactions and reconcile. Dropzone → needs-review queue → full ledger. Category chips open a popover picker; disclaimer points to Plan for new buckets.">
+        <div className="grid-1x2">
+          <VariantCell mode="dark" device="Mobile">
+            <PhoneFrameHF mode="dark">
+              <ExpensesPhoneHF txns={txns1} onAssign={makeOnAssign(setTxns1)} onNav={onNav} />
+            </PhoneFrameHF>
+          </VariantCell>
+          <VariantCell mode="dark" device="Desktop">
+            <DesktopFrameHF mode="dark">
+              <ExpensesDesktopHF txns={txns2} onAssign={makeOnAssign(setTxns2)} onNav={onNav} />
+            </DesktopFrameHF>
+          </VariantCell>
+        </div>
+      </VariantGroup>
+
+      {/* =================== RESULTS (dark only) =================== */}
+      <VariantGroup
+        title="Results"
+        sub="Per-category performance over the cycle. Dashed line = max-per-day to hit budget. Actual is a single cumulative line colored by zone — green on pace, amber ahead of pace, red over budget. Unknowns are surfaced in an amber banner.">
+        <div className="grid-1x2">
+          <VariantCell mode="dark" device="Mobile">
+            <PhoneFrameHF mode="dark">
+              <ResultsPhoneHF onNav={onNav} />
+            </PhoneFrameHF>
+          </VariantCell>
+          <VariantCell mode="dark" device="Desktop">
+            <DesktopFrameHF mode="dark">
+              <ResultsDesktopHF onNav={onNav} />
+            </DesktopFrameHF>
+          </VariantCell>
+        </div>
+      </VariantGroup>
+
+      {/* =================== SUMMARY (dark only) =================== */}
+      <VariantGroup
+        title="Summary"
+        sub="Headline net number = savings bucket + excess saved across spend categories. On desktop, a rail surfaces anything still needing review so the cycle can actually close.">
+        <div className="grid-1x2">
+          <VariantCell mode="dark" device="Mobile">
+            <PhoneFrameHF mode="dark">
+              <SummaryPhoneHF onNav={onNav} />
+            </PhoneFrameHF>
+          </VariantCell>
+          <VariantCell mode="dark" device="Desktop">
+            <DesktopFrameHF mode="dark">
+              <SummaryDesktopHF onNav={onNav} />
+            </DesktopFrameHF>
+          </VariantCell>
+        </div>
+      </VariantGroup>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>

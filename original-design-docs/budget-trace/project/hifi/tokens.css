@@ -1,0 +1,330 @@
+/* ============================================================
+   Budget Trace — Hi-Fi Design Tokens
+   Oura Ring x refined financial dashboard. Calm, confident.
+   ============================================================ */
+
+:root {
+  /* -------- Type --------- */
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", system-ui, sans-serif;
+  --font-text:    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono:    "SF Mono", ui-monospace, "Menlo", "Monaco", monospace;
+
+  /* -------- Motion --------- */
+  --ease: cubic-bezier(.2,.8,.2,1);
+  --dur-fast: 120ms;
+  --dur: 200ms;
+
+  /* -------- Radii --------- */
+  --r-card: 20px;
+  --r-tile: 18px;
+  --r-btn: 12px;
+  --r-input: 12px;
+  --r-chip: 999px;
+  --r-sm: 8px;
+
+  /* -------- Elevation (very restrained) --------- */
+  --shadow-none: 0 0 0 0 transparent;
+  --shadow-1: 0 1px 2px rgba(10, 8, 4, 0.04), 0 8px 24px -12px rgba(10, 8, 4, 0.08);
+  --shadow-pop: 0 20px 60px -20px rgba(10, 8, 4, 0.25), 0 2px 8px rgba(10, 8, 4, 0.08);
+}
+
+/* -------- LIGHT THEME -------- */
+.theme-light {
+  /* surfaces */
+  --bg: #F6F3EC;          /* warm off-white app bg */
+  --bg-2: #F0ECE2;        /* subtle recessed */
+  --surface: #FFFFFF;     /* elevated panels, cards */
+  --surface-2: #FAF8F2;   /* lightly elevated */
+  --surface-glass: rgba(255, 253, 247, 0.72);
+  --surface-glass-strong: rgba(255, 253, 247, 0.88);
+
+  /* text */
+  --ink: #121110;
+  --ink-2: #2C2A26;
+  --ink-3: #5C5851;       /* secondary */
+  --ink-4: #8C877D;       /* tertiary */
+  --ink-5: #B5B0A5;       /* quaternary */
+
+  /* hairlines */
+  --rule: rgba(18, 17, 16, 0.08);
+  --rule-strong: rgba(18, 17, 16, 0.14);
+  --rule-soft: rgba(18, 17, 16, 0.05);
+
+  /* glass edge highlights */
+  --glass-edge: rgba(255, 255, 255, 0.6);
+  --glass-edge-inner: rgba(18, 17, 16, 0.06);
+
+  /* semantic */
+  --pos: #2E7D53;         /* calmer green */
+  --pos-bg: rgba(46, 125, 83, 0.08);
+  --pos-border: rgba(46, 125, 83, 0.2);
+  --neg: #B4432F;
+  --neg-bg: rgba(180, 67, 47, 0.08);
+  --neg-border: rgba(180, 67, 47, 0.22);
+  --warn: #9A7A2C;
+  --warn-bg: rgba(154, 122, 44, 0.1);
+
+  /* treemap tile tonal scale (deep neutrals, light mode) */
+  --tile-1: #ECE8DE;
+  --tile-2: #E2DED3;
+  --tile-3: #D6D2C6;
+  --tile-4: #C8C4B7;
+  --tile-5: #B9B6A8;
+  --tile-ink: #1A1815;
+  --tile-ink-2: #4A463D;
+}
+
+/* -------- DARK THEME -------- */
+.theme-dark {
+  --bg: #0C0B09;
+  --bg-2: #13120F;
+  --surface: #17150F;
+  --surface-2: #1D1B14;
+  --surface-glass: rgba(25, 23, 17, 0.64);
+  --surface-glass-strong: rgba(25, 23, 17, 0.82);
+
+  --ink: #F0ECE2;
+  --ink-2: #D9D4C6;
+  --ink-3: #A49E8E;
+  --ink-4: #76715F;
+  --ink-5: #4F4A3E;
+
+  --rule: rgba(240, 236, 226, 0.08);
+  --rule-strong: rgba(240, 236, 226, 0.14);
+  --rule-soft: rgba(240, 236, 226, 0.04);
+
+  --glass-edge: rgba(255, 253, 247, 0.08);
+  --glass-edge-inner: rgba(0, 0, 0, 0.3);
+
+  --pos: #6FBE8E;
+  --pos-bg: rgba(111, 190, 142, 0.1);
+  --pos-border: rgba(111, 190, 142, 0.28);
+  --neg: #E0826D;
+  --neg-bg: rgba(224, 130, 109, 0.1);
+  --neg-border: rgba(224, 130, 109, 0.28);
+  --warn: #D4B26A;
+  --warn-bg: rgba(212, 178, 106, 0.12);
+
+  --tile-1: #1F1D16;
+  --tile-2: #26231B;
+  --tile-3: #2E2B22;
+  --tile-4: #383428;
+  --tile-5: #423D2F;
+  --tile-ink: #F0ECE2;
+  --tile-ink-2: #B5B0A0;
+}
+
+/* ============================================================
+   Base
+   ============================================================ */
+
+.bt {
+  font-family: var(--font-text);
+  color: var(--ink);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "ss01", "cv11";
+  letter-spacing: -0.005em;
+}
+
+.bt button { font-family: inherit; color: inherit; }
+
+/* Numbers align in columns */
+.bt .num, .bt .mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Metadata label: small all-caps */
+.bt .label {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-4);
+  font-weight: 500;
+}
+
+.bt .display {
+  font-family: var(--font-display);
+  letter-spacing: -0.022em;
+  font-weight: 600;
+}
+
+/* ============================================================
+   Chrome primitives
+   ============================================================ */
+
+/* Thin glass surface — nav bars, popovers, modals */
+.bt .glass {
+  background: var(--surface-glass);
+  backdrop-filter: saturate(140%) blur(20px);
+  -webkit-backdrop-filter: saturate(140%) blur(20px);
+  border: 1px solid var(--rule-strong);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
+}
+.bt .glass-strong {
+  background: var(--surface-glass-strong);
+  backdrop-filter: saturate(140%) blur(24px);
+  -webkit-backdrop-filter: saturate(140%) blur(24px);
+  border: 1px solid var(--rule-strong);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
+}
+
+/* Cards */
+.bt .card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--r-card);
+}
+
+/* Buttons */
+.bt .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 14px;
+  border-radius: var(--r-btn);
+  font-size: 13.5px;
+  font-weight: 500;
+  letter-spacing: -0.005em;
+  border: 1px solid var(--rule-strong);
+  background: var(--surface);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease);
+}
+.bt .btn:hover { background: var(--surface-2); }
+.bt .btn.primary {
+  background: var(--ink);
+  color: var(--bg);
+  border-color: var(--ink);
+}
+.theme-dark .bt .btn.primary { background: var(--ink); color: var(--bg); }
+.bt .btn.primary:hover { opacity: 0.9; }
+.bt .btn.ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.bt .btn.ghost:hover { background: var(--surface-2); }
+.bt .btn.icon {
+  padding: 0;
+  width: 34px;
+  height: 34px;
+  justify-content: center;
+  border-radius: 10px;
+}
+
+/* Inputs */
+.bt .input, .bt select.input, .bt textarea.input {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--r-input);
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+.bt .input:focus { border-color: var(--ink-3); background: var(--surface); }
+.bt .input.mono { font-family: var(--font-mono); }
+
+/* Chip / pill */
+.bt .chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--r-chip);
+  background: var(--surface-2);
+  border: 1px solid var(--rule);
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.bt .chip.pos { background: var(--pos-bg); border-color: var(--pos-border); color: var(--pos); }
+.bt .chip.neg { background: var(--neg-bg); border-color: var(--neg-border); color: var(--neg); }
+.bt .chip.warn { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+
+/* Separators */
+.bt hr.rule {
+  border: 0;
+  border-top: 1px solid var(--rule);
+  margin: 0;
+}
+
+/* ============================================================
+   Treemap tile styling (heavier glass, crisp labels)
+   ============================================================ */
+
+.bt .tile-hf {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-tile);
+  background: var(--tile-3);
+  border: 1px solid var(--rule-strong);
+  box-shadow: inset 0 1px 0 var(--glass-edge);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease);
+  box-sizing: border-box;
+}
+.bt .tile-hf:hover { transform: translateY(-1px); }
+.bt .tile-hf[data-tone="1"] { background: var(--tile-1); }
+.bt .tile-hf[data-tone="2"] { background: var(--tile-2); }
+.bt .tile-hf[data-tone="3"] { background: var(--tile-3); }
+.bt .tile-hf[data-tone="4"] { background: var(--tile-4); }
+.bt .tile-hf[data-tone="5"] { background: var(--tile-5); }
+
+/* Subtle glass sheen (top-left) */
+.bt .tile-hf::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    145deg,
+    rgba(255,255,255,0.06) 0%,
+    rgba(255,255,255,0) 35%,
+    rgba(0,0,0,0.02) 100%
+  );
+  pointer-events: none;
+}
+.theme-dark .bt .tile-hf::before {
+  background: linear-gradient(
+    145deg,
+    rgba(255,253,247,0.04) 0%,
+    rgba(255,253,247,0) 35%,
+    rgba(0,0,0,0.12) 100%
+  );
+}
+
+/* Layout frame variants */
+.bt .frame-phone {
+  width: 390px;
+  height: 800px;
+  border-radius: 44px;
+  background: var(--bg);
+  border: 1px solid var(--rule-strong);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+.bt .frame-desktop {
+  width: 1120px;
+  height: 720px;
+  border-radius: 16px;
+  background: var(--bg);
+  border: 1px solid var(--rule-strong);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Focus rings — subtle */
+.bt *:focus-visible {
+  outline: 2px solid var(--ink-3);
+  outline-offset: 2px;
+}

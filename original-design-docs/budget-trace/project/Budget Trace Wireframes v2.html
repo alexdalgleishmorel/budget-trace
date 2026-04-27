@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Budget Trace — Wireframes v2</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="styles.css?v=3" />
+</head>
+<body>
+
+<div id="root"></div>
+
+<div class="tweaks-panel" id="tweaks">
+  <h4>Tweaks <button class="icon-btn" id="tweaks-close" style="border:none;background:transparent;font-size:18px;cursor:pointer;">×</button></h4>
+  <div class="group">
+    <div class="group-label">Color strategy</div>
+    <select id="t-color">
+      <option value="full">Pastel category colors</option>
+      <option value="bw-accent">B&W + accent for over-budget</option>
+      <option value="bw-only">Pure b&w</option>
+    </select>
+  </div>
+  <div class="group">
+    <div class="group-label">Period model</div>
+    <select id="t-period">
+      <option value="month">1st of month → 1st of next</option>
+      <option value="payday">User-defined (payday cycle)</option>
+    </select>
+  </div>
+  <div class="group">
+    <div class="group-label">Savings role</div>
+    <select id="t-savings">
+      <option value="bucket">A bucket like the others</option>
+      <option value="computed">Computed = income − spend</option>
+    </select>
+  </div>
+  <div class="muted" style="font-size:11px">
+    Tap any tile to drill in. Click chips on the Expenses screen to reassign.
+  </div>
+</div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="screen-treemap.jsx"></script>
+<script type="text/babel" src="v2-screen-plan.jsx"></script>
+<script type="text/babel" src="v2-screen-expenses.jsx"></script>
+<script type="text/babel" src="v2-screen-results.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "colorStrategy": "full",
+  "periodModel": "month",
+  "savingsRole": "bucket"
+}/*EDITMODE-END*/;
+
+function VariationLabel({ n, title, sub }) {
+  const isShort = typeof n === 'string' && n.length <= 2;
+  return (
+    <div className="v-label">
+      {isShort
+        ? <span className="v-num">{n}</span>
+        : <span style={{ fontFamily: 'var(--hand)', fontSize: 11, textTransform: 'uppercase', letterSpacing: 0.08, border: '1.2px solid var(--ink)', padding: '2px 8px', borderRadius: 999, background: 'var(--paper)' }}>{n}</span>}
+      <b style={{ fontWeight: 700 }}>{title}</b>
+      {sub && <span className="muted">{sub}</span>}
+    </div>
+  );
+}
+
+function Screen({ title, sub, children, screenLabel }) {
+  return (
+    <section data-screen-label={screenLabel}>
+      <div className="page-head">
+        <h2 className="display">{title}</h2>
+        <div className="sub">{sub}</div>
+      </div>
+      <div className="variations">{children}</div>
+    </section>
+  );
+}
+
+function App() {
+  const [tab, setTab] = React.useState(() => localStorage.getItem('bt-tab-v2') || 'plan');
+  const [drilledPh, setDrilledPh] = React.useState(null);
+  const [drilledDk, setDrilledDk] = React.useState(null);
+  const [txns, setTxns] = React.useState(() => makeTransactions());
+
+  const onAssign = (txn, cat) => {
+    setTxns(ts => ts.map(t => t === txn ? { ...t, cat } : t));
+  };
+
+  React.useEffect(() => { localStorage.setItem('bt-tab-v2', tab); }, [tab]);
+
+  React.useEffect(() => {
+    const apply = (k, v) => {
+      if (k === 'colorStrategy') {
+        document.body.classList.remove('bw-only','bw-accent');
+        if (v === 'bw-only') document.body.classList.add('bw-only');
+        if (v === 'bw-accent') document.body.classList.add('bw-accent');
+      }
+    };
+    Object.entries(TWEAK_DEFAULTS).forEach(([k,v]) => apply(k,v));
+
+    const handler = (e) => {
+      if (e.data?.type === '__activate_edit_mode') document.getElementById('tweaks').classList.add('open');
+      if (e.data?.type === '__deactivate_edit_mode') document.getElementById('tweaks').classList.remove('open');
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({ type: '__edit_mode_available' }, '*');
+
+    const wire = (id, key) => {
+      const el = document.getElementById(id);
+      el.value = TWEAK_DEFAULTS[key];
+      el.addEventListener('change', () => {
+        TWEAK_DEFAULTS[key] = el.value;
+        apply(key, el.value);
+        window.parent.postMessage({ type: '__edit_mode_set_keys', edits: { [key]: el.value } }, '*');
+      });
+    };
+    wire('t-color', 'colorStrategy');
+    wire('t-period', 'periodModel');
+    wire('t-savings', 'savingsRole');
+    document.getElementById('tweaks-close').onclick = () => document.getElementById('tweaks').classList.remove('open');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  const tabs = [
+    ['plan', 'Plan'],
+    ['expenses', 'Expenses'],
+    ['results', 'Results'],
+    ['summary', 'Summary'],
+    ['notes', 'Changes'],
+  ];
+
+  return (
+    <div>
+      <header style={{ padding: '20px 28px 4px', display: 'flex', alignItems: 'baseline', gap: 16, flexWrap: 'wrap' }}>
+        <h1 className="display" style={{ margin: 0, fontSize: 38, fontWeight: 700 }}>
+          <span className="scribble">Budget Trace</span> · wireframes v2
+        </h1>
+        <span className="muted" style={{ fontSize: 13 }}>
+          Plan · Expenses · Results · Summary · refinement pass
+        </span>
+      </header>
+
+      <div className="tabs">
+        {tabs.map(([id, label]) => (
+          <button key={id} className={'tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'plan' && (
+        <Screen
+          title="Plan — theoretical monthly budget"
+          sub="Independent of real-world results. Drill down to leaf categories. No 'unknown' here — that lives in Results."
+          screenLabel="01 Plan">
+          <div className="variation">
+            <VariationLabel n="Mobile" title="Marimekko rows" sub="readable on small screens" />
+            <PlanPhone drilled={drilledPh} setDrilled={setDrilledPh} onNav={setTab} />
+          </div>
+          <div className="variation">
+            <VariationLabel n="Desktop" title="Breadcrumb + classic treemap" sub="edit amounts, add groups" />
+            <PlanDesktop drilled={drilledDk} setDrilled={setDrilledDk} onNav={setTab} />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'expenses' && (
+        <Screen
+          title="Expenses — upload + manage"
+          sub="Upload a CSV, triage unknowns, reassign categories. Click any chip to change a category."
+          screenLabel="02 Expenses">
+          <div className="variation">
+            <VariationLabel n="Mobile" title="Dropzone + review + all expenses" sub="single scroll" />
+            <ExpensesPhone txns={txns} onAssign={onAssign} onNav={setTab} />
+          </div>
+          <div className="variation">
+            <VariationLabel n="Desktop" title="Upload/review side-by-side with full table" sub="review queue docked left" />
+            <ExpensesDesktop txns={txns} onAssign={onAssign} onNav={setTab} />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'results' && (
+        <Screen
+          title="Results — performance vs plan"
+          sub="Dashed line = max per-day to hit budget by month end. Solid line = actual cumulative, colored by zone."
+          screenLabel="03 Results">
+          <div className="variation">
+            <VariationLabel n="Mobile" title="Stacked small-multiples" sub="unknown banner on top" />
+            <ResultsPhone onNav={setTab} />
+          </div>
+          <div className="variation">
+            <VariationLabel n="Desktop" title="Grid of charts" sub="legend + review-unknowns banner" />
+            <ResultsDesktop onNav={setTab} />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'summary' && (
+        <Screen
+          title="Period summary"
+          sub="Net this month = Savings bucket contribution + excess saved across other categories."
+          screenLabel="04 Summary">
+          <div className="variation">
+            <VariationLabel n="Mobile" title="Big-number NET" sub="savings + excess saved" />
+            <SummaryPhoneV2 onNav={setTab} />
+          </div>
+          <div className="variation">
+            <VariationLabel n="Desktop" title="Full summary" sub="categories table + review panel" />
+            <SummaryDesktopV2 onNav={setTab} />
+          </div>
+        </Screen>
+      )}
+
+      {tab === 'notes' && (
+        <section data-screen-label="05 Changes">
+          <div className="page-head">
+            <h2 className="display">What changed from v1</h2>
+            <div className="sub">Each refinement mapped to your feedback.</div>
+          </div>
+          <div style={{ padding: '8px 28px 60px', maxWidth: 880 }}>
+            <div className="sketch-box" style={{ padding: 18, marginBottom: 14 }}>
+              <ol style={{ fontFamily: 'var(--hand)', fontSize: 14, lineHeight: 1.7, paddingLeft: 20, margin: 0 }}>
+                <li><b>Plan renamed & isolated.</b> "Treemap" → "Plan". No Unknown tile; Plan is purely the theoretical budget.</li>
+                <li><b>Default variants.</b> Desktop Plan uses breadcrumb + inline fill treemap; mobile Plan uses marimekko rows.</li>
+                <li><b>Unknown moved to Results.</b> A yellow banner on Results (phone + desktop) calls out uncategorized txns and links to review.</li>
+                <li><b>Expenses split into Upload + Manage.</b> Upload shows the dropzone + review queue; Manage shows every txn with a <b>clickable category chip</b> that opens a picker. A sticky note reminds users to create new buckets in Plan.</li>
+                <li><b>Results chart redone.</b> Dashed line = ideal max per day (straight 0→budget). Solid line = actual cumulative, segmented by zone: <span style={{ color: 'var(--good)' }}>green</span> under dashed, <span style={{ color: '#d4a017' }}>yellow</span> over dashed but under total, <span style={{ color: 'var(--accent)' }}>red</span> over total. Legend on desktop.</li>
+                <li><b>Summary net number.</b> Big NET now explicitly = Savings bucket + excess saved (budget − actual on other buckets). Shown as "$X saved + $Y under budget".</li>
+              </ol>
+            </div>
+            <div className="sticky" style={{ maxWidth: 'none', display: 'inline-block' }}>
+              Toggle <b>Tweaks</b> in the toolbar to flip color strategy, period model, savings role.
+            </div>
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
