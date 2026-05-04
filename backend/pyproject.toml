@@ -27,7 +27,6 @@ where = ["src"]
 
 [project.scripts]
 budget-trace-mcp = "budget_trace_backend.mcp_server:run_stdio"
-budget-trace-seed = "budget_trace_backend.seed:main"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

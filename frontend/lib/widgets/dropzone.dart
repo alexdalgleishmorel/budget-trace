@@ -4,10 +4,12 @@ import 'package:flutter/material.dart';
 import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
 import 'cat_icon.dart';
+import 'import_progress_modal.dart';
 
-/// Statement upload affordance. Tap → file picker → POST /transactions/import →
-/// SnackBar summary, then [onImported] (typically a refetch trigger from
-/// AppShell).
+/// Statement upload affordance. Tap → file picker → opens
+/// [ImportProgressModal], which awaits the upload and shows in-progress /
+/// success / error panels. [onImported] fires after the modal closes so
+/// AppShell refetches.
 ///
 /// CSV is always allowed. When [aiEnabled] is true, a small toggle appears
 /// underneath that, when on, sends `parser=ai` and accepts PDFs.
@@ -31,11 +33,9 @@ class Dropzone extends StatefulWidget {
 
 class _DropzoneState extends State<Dropzone> {
   bool _hovered = false;
-  bool _busy = false;
   bool _useAi = false;
 
   Future<void> _pickAndUpload() async {
-    if (_busy) return;
     final extensions = _useAi ? ['csv', 'pdf'] : ['csv'];
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
@@ -46,31 +46,26 @@ class _DropzoneState extends State<Dropzone> {
     final file = picked.files.first;
     final bytes = file.bytes;
     if (bytes == null) {
-      _showSnack('Could not read file bytes.');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not read file bytes.')),
+      );
       return;
     }
 
-    setState(() => _busy = true);
-    try {
-      final result = await widget.client.import(
+    final parser = _useAi ? 'ai' : 'csv';
+    if (!mounted) return;
+    await ImportProgressModal.show(
+      context: context,
+      filename: file.name,
+      aiEnabled: _useAi,
+      upload: () => widget.client.import(
         bytes: bytes,
         filename: file.name,
-        parser: _useAi ? 'ai' : 'csv',
-      );
-      _showSnack(result.summary);
-      await widget.onImported();
-    } catch (e) {
-      _showSnack('Upload failed: $e');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  void _showSnack(String msg) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(msg)),
+        parser: parser,
+      ),
     );
+    await widget.onImported();
   }
 
   @override
@@ -108,18 +103,13 @@ class _DropzoneState extends State<Dropzone> {
                   border: Border.all(color: bt.ruleStrong),
                 ),
                 child: Center(
-                  child: _busy
-                      ? const SizedBox(
-                          width: 18, height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : BudgetIcons.build('upload',
-                          size: 20, strokeWidth: 1.8, color: bt.ink2),
+                  child: BudgetIcons.build('upload',
+                      size: 20, strokeWidth: 1.8, color: bt.ink2),
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                _busy ? 'Uploading…' : 'Drop a statement',
+                'Drop a statement',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: bt.ink),
               ),
               const SizedBox(height: 2),

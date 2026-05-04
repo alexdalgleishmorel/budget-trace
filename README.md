@@ -14,9 +14,9 @@ See [`docs/`](docs/README.md) for architecture, setup, and conventions. The full
 cd backend
 python3 -m venv .venv && . .venv/bin/activate
 pip install -e '.[dev]'
-export ANTHROPIC_API_KEY=sk-ant-...
-budget-trace-seed
+export ANTHROPIC_API_KEY=sk-ant-...   # optional — can also be set in the Account UI
 uvicorn budget_trace_backend.main:app --reload --port 8000
+# First boot auto-creates data/budget_trace.db. No separate seed step.
 
 # Frontend (in another terminal)
 cd frontend

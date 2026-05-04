@@ -1,14 +1,12 @@
-"""Generate 12 months of mock transactions ending 2026-04-30.
+"""Test-fixture mock-data generator. Not exposed as a CLI to end users.
 
-Mirrors the category tree in `frontend/lib/data/mock_data.dart` so the AI's
-view matches what users see in the Categories screen. Realistic seasonality:
-recurring monthly bills, variable shopping/grocery, lumpier travel/fun, plus a
-healthy stream of uncategorised transactions for the AI to chew on.
+Generates 12 months of deterministic mock transactions ending 2026-04-30
+plus a sample category tree. Used by `tests/` to populate a tmp DB; the
+shipped backend bootstraps to a clean empty state via `db.bootstrap_db()`
+on FastAPI startup, so users start with no data instead of the mock set.
 
 Deterministic: `random.seed(SEED_VALUE)` makes runs reproducible. Idempotent:
-rerunning wipes both tables before reseeding.
-
-Run via: `python -m budget_trace_backend.seed` or `budget-trace-seed`.
+calling `main()` wipes both tables before reseeding.
 """
 
 from __future__ import annotations

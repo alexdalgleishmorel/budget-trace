@@ -242,20 +242,52 @@ class _MobileExpenses extends StatelessWidget {
                     onImported: onImported,
                     aiEnabled: aiEnabled,
                   ),
-                  if (unknown.isNotEmpty) ...[
+                  if (unknown.isEmpty && known.isEmpty) ...[
                     const SizedBox(height: 18),
-                    _SectionHeader(
-                      icon: 'alert',
-                      iconColor: bt.warn,
-                      title: 'Needs review',
-                      count: '${unknown.length} of ${unknown.length + known.length}',
+                    _NoExpensesPanel(
+                      cycleLabel: cycle.label,
+                      hasCategories: cycle.root.children.any((c) => !c.isUnknown),
+                    ),
+                  ] else ...[
+                    if (unknown.isNotEmpty) ...[
+                      const SizedBox(height: 18),
+                      _SectionHeader(
+                        icon: 'alert',
+                        iconColor: bt.warn,
+                        title: 'Needs review',
+                        count: '${unknown.length} of ${unknown.length + known.length}',
+                        bt: bt,
+                      ),
+                      const SizedBox(height: 8),
+                      BudgetCard(
+                        clipContent: true,
+                        child: Column(
+                          children: unknown.mapIndexed((i, t) => _TxnRow(
+                            txn: t,
+                            root: cycle.root,
+                            showDivider: i > 0,
+                            onAssign: onAssign,
+                            onEdit: () => onEditTransaction(t),
+                          )).toList(),
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 20),
+                    _SectionHeader(title: 'All transactions', count: '${known.length}', bt: bt),
+                    const SizedBox(height: 8),
+                    _SearchBar(
+                      value: search,
+                      onChanged: onSearchChange,
+                      root: cycle.root,
+                      filterCat: filterCat,
+                      onFilterChange: onFilterChange,
                       bt: bt,
                     ),
                     const SizedBox(height: 8),
                     BudgetCard(
                       clipContent: true,
                       child: Column(
-                        children: unknown.mapIndexed((i, t) => _TxnRow(
+                        children: known.mapIndexed((i, t) => _TxnRow(
                           txn: t,
                           root: cycle.root,
                           showDivider: i > 0,
@@ -265,30 +297,6 @@ class _MobileExpenses extends StatelessWidget {
                       ),
                     ),
                   ],
-                  const SizedBox(height: 20),
-                  _SectionHeader(title: 'All transactions', count: '${known.length}', bt: bt),
-                  const SizedBox(height: 8),
-                  _SearchBar(
-                    value: search,
-                    onChanged: onSearchChange,
-                    root: cycle.root,
-                    filterCat: filterCat,
-                    onFilterChange: onFilterChange,
-                    bt: bt,
-                  ),
-                  const SizedBox(height: 8),
-                  BudgetCard(
-                    clipContent: true,
-                    child: Column(
-                      children: known.mapIndexed((i, t) => _TxnRow(
-                        txn: t,
-                        root: cycle.root,
-                        showDivider: i > 0,
-                        onAssign: onAssign,
-                        onEdit: () => onEditTransaction(t),
-                      )).toList(),
-                    ),
-                  ),
                 ],
               ),
             ),
@@ -516,17 +524,24 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                                 onSort: _onSort,
                               ),
                               Expanded(
-                                child: SingleChildScrollView(
-                                  child: Column(
-                                    children: _tableRows.mapIndexed((i, t) => _TableRow(
-                                      txn: t,
-                                      root: widget.cycle.root,
-                                      onAssign: widget.onAssign,
-                                      onEdit: () => widget.onEditTransaction(t),
-                                      bt: bt,
-                                    )).toList(),
-                                  ),
-                                ),
+                                child: _tableRows.isEmpty
+                                    ? _NoExpensesPanel(
+                                        cycleLabel: widget.cycle.label,
+                                        hasCategories: widget.cycle.root.children
+                                            .any((c) => !c.isUnknown),
+                                        embedded: true,
+                                      )
+                                    : SingleChildScrollView(
+                                        child: Column(
+                                          children: _tableRows.mapIndexed((i, t) => _TableRow(
+                                            txn: t,
+                                            root: widget.cycle.root,
+                                            onAssign: widget.onAssign,
+                                            onEdit: () => widget.onEditTransaction(t),
+                                            bt: bt,
+                                          )).toList(),
+                                        ),
+                                      ),
                               ),
                             ],
                           ),
@@ -786,6 +801,82 @@ class _TableRow extends StatelessWidget {
         ],
       ),
     );
+  }
+}
+
+// ── Empty state ─────────────────────────────────────────────────────────────
+
+class _NoExpensesPanel extends StatelessWidget {
+  /// Shown when the current cycle has zero transactions. The mobile layout
+  /// uses the standalone (`embedded: false`) form below the dropzone; the
+  /// desktop table card uses `embedded: true` to fill the remaining space
+  /// inside an already-bordered container.
+  const _NoExpensesPanel({
+    required this.cycleLabel,
+    required this.hasCategories,
+    this.embedded = false,
+  });
+
+  final String cycleLabel;
+  final bool hasCategories;
+  final bool embedded;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    final title = hasCategories ? 'No expenses in $cycleLabel' : 'No expenses yet';
+    final body = hasCategories
+        ? 'Drop a CSV statement above to import — or use the cycle picker to '
+          'jump to a month that has data.'
+        : 'Add a category in the Categories tab first, then drop a statement '
+          'above. The AI auto-categorizer needs somewhere to file things.';
+
+    final inner = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: bt.surface2,
+              border: Border.all(color: bt.ruleStrong),
+              borderRadius: const BorderRadius.all(Radius.circular(12)),
+            ),
+            alignment: Alignment.center,
+            child: BudgetIcons.build('expenses',
+                size: 18, strokeWidth: 1.6, color: bt.ink3),
+          ),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: bt.ink2,
+            ),
+          ),
+          const SizedBox(height: 6),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 360),
+            child: Text(
+              body,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 12.5, color: bt.ink4, height: 1.5),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (embedded) {
+      return Center(child: inner);
+    }
+    return BudgetCard(child: inner);
   }
 }
 

@@ -16,7 +16,19 @@ import 'insights_history_view.dart';
 /// Sessions are persisted server-side (`/chat/sessions`). The history view is
 /// always loaded fresh from the API; tapping a row reloads its messages here.
 class InsightsScreen extends StatefulWidget {
-  const InsightsScreen({super.key});
+  const InsightsScreen({
+    super.key,
+    required this.apiKeySet,
+    required this.onOpenAccount,
+  });
+
+  /// Whether the user has stored an Anthropic API key. When false, the chat
+  /// input is disabled and the empty-state guides the user to Account
+  /// instead of letting them hit a 400 on submit.
+  final bool apiKeySet;
+
+  /// Push the AccountScreen — used by the no-key empty state's CTA.
+  final Future<void> Function() onOpenAccount;
 
   @override
   State<InsightsScreen> createState() => _InsightsScreenState();
@@ -225,6 +237,8 @@ class _InsightsScreenState extends State<InsightsScreen> {
                   scrollController: _scrollController,
                   onSubmit: _submit,
                   busy: _busy,
+                  apiKeySet: widget.apiKeySet,
+                  onOpenAccount: widget.onOpenAccount,
                 ),
               ),
             ),
@@ -332,6 +346,8 @@ class _ChatPanel extends StatelessWidget {
     required this.scrollController,
     required this.onSubmit,
     required this.busy,
+    required this.apiKeySet,
+    required this.onOpenAccount,
   });
 
   final List<ChatMessage> messages;
@@ -340,10 +356,13 @@ class _ChatPanel extends StatelessWidget {
   final ScrollController scrollController;
   final VoidCallback onSubmit;
   final bool busy;
+  final bool apiKeySet;
+  final Future<void> Function() onOpenAccount;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
+    final inputEnabled = apiKeySet && !busy;
     return Container(
       decoration: BoxDecoration(
         color: bt.surface,
@@ -356,7 +375,9 @@ class _ChatPanel extends StatelessWidget {
           children: [
             Expanded(
               child: messages.isEmpty
-                  ? _EmptyTranscript(bt: bt)
+                  ? (apiKeySet
+                      ? _EmptyTranscript(bt: bt)
+                      : _NoApiKeyEmpty(bt: bt, onOpenAccount: onOpenAccount))
                   : ListView.builder(
                       controller: scrollController,
                       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
@@ -386,7 +407,7 @@ class _ChatPanel extends StatelessWidget {
                       focusNode: focusNode,
                       onSubmitted: (_) => onSubmit(),
                       textInputAction: TextInputAction.send,
-                      enabled: !busy,
+                      enabled: inputEnabled,
                       cursorColor: bt.ink,
                       style: TextStyle(
                         fontFamily: 'monospace',
@@ -394,7 +415,9 @@ class _ChatPanel extends StatelessWidget {
                         color: bt.ink,
                       ),
                       decoration: InputDecoration(
-                        hintText: 'Ask about your spending…',
+                        hintText: apiKeySet
+                            ? 'Ask about your spending…'
+                            : 'Set an Anthropic API key in Account to chat',
                         hintStyle: TextStyle(
                             color: bt.ink4, fontFamily: 'monospace'),
                         border: InputBorder.none,
@@ -405,17 +428,78 @@ class _ChatPanel extends StatelessWidget {
                     ),
                   ),
                   GestureDetector(
-                    onTap: busy ? null : onSubmit,
+                    onTap: inputEnabled ? onSubmit : null,
                     behavior: HitTestBehavior.opaque,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 4, vertical: 12),
                       child: BudgetIcons.build('arrow-up',
                           size: 16, strokeWidth: 2,
-                          color: busy ? bt.ink4 : bt.ink3),
+                          color: inputEnabled ? bt.ink3 : bt.ink4),
                     ),
                   ),
                 ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NoApiKeyEmpty extends StatelessWidget {
+  const _NoApiKeyEmpty({required this.bt, required this.onOpenAccount});
+  final BudgetTheme bt;
+  final Future<void> Function() onOpenAccount;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            BudgetIcons.build('shield',
+                size: 24, strokeWidth: 1.6, color: bt.ink4),
+            const SizedBox(height: 14),
+            Text(
+              'Anthropic API key needed',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: bt.ink2,
+              ),
+            ),
+            const SizedBox(height: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: Text(
+                'Insights talks to Claude. Add your key in Account, then come '
+                'back to chat about your spending.',
+                style: TextStyle(fontSize: 12, color: bt.ink4, height: 1.5),
+                textAlign: TextAlign.center,
+              ),
+            ),
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: onOpenAccount,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                decoration: BoxDecoration(
+                  color: bt.ink,
+                  borderRadius: const BorderRadius.all(Radius.circular(10)),
+                ),
+                child: Text(
+                  'Open Account',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: bt.bg,
+                  ),
+                ),
               ),
             ),
           ],

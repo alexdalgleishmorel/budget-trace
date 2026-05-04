@@ -11,9 +11,14 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 
+# Optional — only needed if you skip setting the key via the in-app
+# Account screen. The DB-stored key wins over this env var.
 export ANTHROPIC_API_KEY=sk-ant-...
-budget-trace-seed                              # writes data/budget_trace.db
+
 uvicorn budget_trace_backend.main:app --reload --port 8000
+# First boot creates data/budget_trace.db with the schema, the symbolic
+# Budget root, and the default user row. To wipe back to first-time-user
+# state: stop the server, `rm data/budget_trace.db`, start it again.
 ```
 
 Health check: `curl http://localhost:8000/healthz`.

@@ -52,10 +52,18 @@ async def upload_transactions(
         format_detected = "csv"
     else:
         # Lazy import — keeps anthropic out of the import path for CSV-only users.
-        from ..importers.ai_parser import parse_with_ai
+        from ..importers.ai_parser import UnsupportedFileType, parse_with_ai
         try:
-            rows, errors, ai_usage = parse_with_ai(content, mime=file.content_type)
+            rows, errors, ai_usage = parse_with_ai(
+                content, mime=file.content_type, filename=file.filename,
+            )
         except AiKeyMissing as e:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": e.code, "message": str(e)},
+            )
+        except UnsupportedFileType as e:
+            # Pre-API-call refusal — we never billed the user for this.
             raise HTTPException(
                 status_code=400,
                 detail={"code": e.code, "message": str(e)},

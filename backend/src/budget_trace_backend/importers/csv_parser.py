@@ -97,9 +97,13 @@ def parse_csv(content: bytes) -> tuple[list[ImportedRow], list[dict]]:
 
             if amount_col is not None:
                 amount = _to_float(raw[amount_col])
-                # Some exports use negative amounts for spend — flip them.
-                if amount < 0:
-                    amount = -amount
+                # Negative amounts in single-Amount-column exports are
+                # almost always payments to the card or refunds (e.g. Scotia
+                # Visa Credit rows) — out of scope for spend tracking. Skip
+                # silently. If you genuinely need negatives-as-spend support,
+                # raise it explicitly via a column-mapping option.
+                if amount <= 0:
+                    continue
             else:
                 # debit-only path
                 amount = _to_float(raw[debit_col])  # type: ignore[index]

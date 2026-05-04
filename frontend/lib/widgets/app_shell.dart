@@ -218,7 +218,10 @@ class _AppShellState extends State<AppShell> {
     }
 
     if (tab == 2 && widget.me.features.ai) {
-      return const InsightsScreen();
+      return InsightsScreen(
+        apiKeySet: widget.me.anthropicApiKeySet,
+        onOpenAccount: _openAccount,
+      );
     }
 
     return const SizedBox.shrink();

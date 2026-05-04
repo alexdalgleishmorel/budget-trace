@@ -13,9 +13,13 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 
+# Optional — set the Anthropic key here, or via the in-app Account screen.
 export ANTHROPIC_API_KEY=sk-ant-...
-budget-trace-seed                              # generates data/budget_trace.db
+
 uvicorn budget_trace_backend.main:app --reload --port 8000
+# First boot auto-creates data/budget_trace.db (schema + Budget root +
+# default user). To reset to a clean state: stop, `rm data/budget_trace.db`,
+# start again.
 ```
 
 The Flutter app picks up the backend via `--dart-define=API_BASE_URL=http://localhost:8000`.

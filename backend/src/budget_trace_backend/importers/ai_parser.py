@@ -4,9 +4,11 @@ Sends the file contents to Claude with a single tool, `parse_transactions`,
 whose schema is the same `ImportedRow` shape the CSV path produces. Claude
 extracts rows, the orchestrator returns them. Same downstream dedupe + insert.
 
-For PDFs we pre-extract text with pdfplumber when available; otherwise we
-hand the raw bytes off as base64 (vision input). Image MIME types likewise
-go through vision input.
+Content-type detection is paranoid on purpose. If we can't positively
+identify the bytes as text, image, or PDF we **refuse** to call the model
+rather than send it garbage and bill the user — that's how a single bad
+upload can cost a user real money for zero rows back. See
+`UnsupportedFileType`.
 """
 
 from __future__ import annotations
@@ -19,6 +21,15 @@ from ..services.anthropic_client import get_client, get_model
 from .common import ImportedRow
 
 log = logging.getLogger(__name__)
+
+
+class UnsupportedFileType(Exception):
+    """Raised when we can't classify the upload as PDF / image / text. The
+    route turns this into a 400 with a friendly message — no API call made,
+    no tokens billed."""
+
+    code = "unsupported_file_type"
+
 
 PARSE_TOOL = {
     "name": "parse_transactions",
@@ -56,12 +67,22 @@ SYSTEM_PROMPT = (
 )
 
 
-def parse_with_ai(content: bytes, *, mime: str | None) -> tuple[list[ImportedRow], list[dict], dict]:
+def parse_with_ai(
+    content: bytes,
+    *,
+    mime: str | None,
+    filename: str | None = None,
+) -> tuple[list[ImportedRow], list[dict], dict]:
     """Returns `(rows, errors, ai_usage)` to feed into `insert_rows` and the
-    response body. Raises `AiKeyMissing` if no Anthropic key is configured."""
-    client = get_client()
-    user_content = _build_user_content(content, mime=mime)
+    response body.
 
+    Raises:
+        AiKeyMissing — no Anthropic key configured.
+        UnsupportedFileType — bytes don't look like PDF/image/text.
+    """
+    user_content = _build_user_content(content, mime=mime, filename=filename)
+
+    client = get_client()
     resp = client.messages.create(
         model=get_model(),
         max_tokens=4096,
@@ -91,29 +112,22 @@ def parse_with_ai(content: bytes, *, mime: str | None) -> tuple[list[ImportedRow
     return rows, errors, usage
 
 
-def _build_user_content(content: bytes, *, mime: str | None) -> list[dict]:
-    """Pick the right content block shape for the file. Text where possible
-    (cheaper); base64-encoded document/image otherwise."""
-    if mime and mime.startswith("text/"):
-        return [{"type": "text", "text": content.decode("utf-8", errors="replace")}]
+def _build_user_content(
+    content: bytes,
+    *,
+    mime: str | None,
+    filename: str | None,
+) -> list[dict]:
+    """Classify [content] and return the matching Anthropic content block.
 
-    if mime == "application/pdf":
-        text = _extract_pdf_text(content)
-        if text:
-            return [{"type": "text", "text": text}]
-        # Fall through to document-input below.
+    Detection order: magic-byte sniff → mime header → filename extension.
+    Magic bytes win because that's the only signal we trust unconditionally;
+    the http-multipart Content-Type is whatever the client decided to send,
+    and may be `application/octet-stream` when the client doesn't bother.
+    """
+    kind = _classify(content, mime=mime, filename=filename)
 
-    if mime and mime.startswith("image/"):
-        return [{
-            "type": "image",
-            "source": {
-                "type": "base64",
-                "media_type": mime,
-                "data": base64.b64encode(content).decode(),
-            },
-        }]
-
-    if mime == "application/pdf":
+    if kind == "pdf":
         return [{
             "type": "document",
             "source": {
@@ -123,19 +137,81 @@ def _build_user_content(content: bytes, *, mime: str | None) -> list[dict]:
             },
         }]
 
-    # Unknown — best-effort decode as text.
-    return [{"type": "text", "text": content.decode("utf-8", errors="replace")}]
+    if kind.startswith("image/"):
+        return [{
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": kind,
+                "data": base64.b64encode(content).decode(),
+            },
+        }]
+
+    if kind == "text":
+        return [{"type": "text", "text": content.decode("utf-8", errors="replace")}]
+
+    # Should be unreachable — _classify either returns one of the above or
+    # raises. Belt-and-braces.
+    raise UnsupportedFileType(
+        "Couldn't identify the file type. Supported: PDF, image (PNG/JPEG/WebP/GIF), "
+        "or plain text/CSV."
+    )
 
 
-def _extract_pdf_text(content: bytes) -> str | None:
-    try:
-        import pdfplumber
-    except Exception:
-        return None
-    try:
-        import io
-        with pdfplumber.open(io.BytesIO(content)) as pdf:
-            return "\n".join((page.extract_text() or "") for page in pdf.pages)
-    except Exception:
-        log.exception("pdfplumber failed")
-        return None
+_IMAGE_SIGNATURES: list[tuple[bytes, str]] = [
+    (b"\x89PNG\r\n\x1a\n", "image/png"),
+    (b"\xff\xd8\xff",      "image/jpeg"),
+    (b"GIF87a",            "image/gif"),
+    (b"GIF89a",            "image/gif"),
+    (b"RIFF",              "image/webp"),  # webp also has WEBP at offset 8 — close enough
+]
+
+
+def _classify(
+    content: bytes,
+    *,
+    mime: str | None,
+    filename: str | None,
+) -> str:
+    """Returns 'pdf', 'text', or 'image/<subtype>'. Raises
+    UnsupportedFileType for anything else — never sends bytes to Claude
+    unidentified."""
+    head = content[:16]
+
+    # Magic bytes — the only signal we trust unconditionally.
+    if head.startswith(b"%PDF-"):
+        return "pdf"
+    for sig, kind in _IMAGE_SIGNATURES:
+        if head.startswith(sig):
+            return kind
+
+    # Mime header from the upload — useful when the client did set one.
+    if mime:
+        if mime == "application/pdf":
+            return "pdf"
+        if mime.startswith("image/"):
+            return mime
+        if mime.startswith("text/"):
+            return "text"
+
+    # Filename extension as last resort. Useful when the client sent the
+    # default application/octet-stream.
+    if filename:
+        lower = filename.lower()
+        if lower.endswith(".pdf"):
+            return "pdf"
+        if lower.endswith((".png",)):
+            return "image/png"
+        if lower.endswith((".jpg", ".jpeg")):
+            return "image/jpeg"
+        if lower.endswith(".gif"):
+            return "image/gif"
+        if lower.endswith(".webp"):
+            return "image/webp"
+        if lower.endswith((".csv", ".txt", ".tsv")):
+            return "text"
+
+    raise UnsupportedFileType(
+        "Couldn't identify the file type. Supported: PDF, image (PNG/JPEG/WebP/GIF), "
+        "or plain text/CSV."
+    )

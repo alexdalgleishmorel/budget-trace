@@ -27,29 +27,28 @@ python3 -m venv .venv
 # Install the backend package in editable mode along with its dev extras
 # (pytest, httpx). Editable means edits in src/ are picked up live.
 pip install -e '.[dev]'
-
-# Generate the SQLite database (data/budget_trace.db) with 12 months of
-# deterministic mock transactions. Idempotent — re-running wipes and reseeds.
-budget-trace-seed
 ```
 
-You only need to redo `pip install -e '.[dev]'` when `pyproject.toml` changes. You only need to redo `budget-trace-seed` if you want to reset the data or after a schema change.
+You only need to redo `pip install -e '.[dev]'` when `pyproject.toml` changes. There's no manual database step — the server auto-creates `data/budget_trace.db` (schema + symbolic Budget root + default user row) on its first boot via the FastAPI lifespan.
 
 ## 2. Backend — start the server
-
-The FastAPI app needs your Anthropic API key in its environment, then `uvicorn` runs it on port 8000.
 
 ```sh
 # Re-activate the venv if this is a fresh shell.
 cd backend && . .venv/bin/activate
 
-# Make the Anthropic SDK pick up your key. Don't commit this anywhere.
+# Optional — only required if you want AI features without setting the key
+# via the in-app Account screen. The Account screen's stored key wins over
+# this env var.
 export ANTHROPIC_API_KEY=sk-ant-...
 
 # Start the API. --reload makes uvicorn restart on source edits, --port pins
-# the URL the Flutter app will call.
+# the URL the Flutter app will call. The lifespan hook auto-initializes the
+# DB on first boot, so a brand-new clone with no data file just works.
 uvicorn budget_trace_backend.main:app --reload --port 8000
 ```
+
+To wipe back to first-time-user state at any point: stop the server, `rm backend/data/budget_trace.db`, then start the server again.
 
 Sanity check from a third terminal:
 
@@ -159,4 +158,4 @@ In a Claude Desktop `claude_desktop_config.json`:
 - **Flutter shows "Network error" on every prompt.** The backend isn't running, or you forgot `--dart-define=API_BASE_URL=...`. Check `curl http://localhost:8000/healthz`.
 - **Backend errors with `ANTHROPIC_API_KEY` missing.** Set the env var in the same shell *before* `uvicorn`.
 - **Categories show stale data after editing the seed.** Categories tab reads `MockData` in Flutter, *not* the backend. Edit `frontend/lib/data/mock_data.dart` to change what the Categories/Expenses tabs see. The AI's view is independent — see [data-model.md](data-model.md).
-- **`budget-trace-seed` says "command not found".** You need the venv active (`. .venv/bin/activate`) and `pip install -e '.[dev]'` to have run successfully — the script is registered as a console entry point.
+- **First-run boot fails to find tables.** The schema, Budget root, and default user row are created by the FastAPI startup lifespan. If you ran a query through `python -m budget_trace_backend...` against a fresh DB without going through the server, init won't have happened — start the server once to bootstrap, or call `budget_trace_backend.db.bootstrap_db()` from your script.

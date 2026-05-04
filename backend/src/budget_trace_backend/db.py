@@ -1,10 +1,12 @@
 """SQLite layer.
 
-The database lives at `backend/data/budget_trace.db` and is created/seeded by
-`budget_trace_backend.seed`. Two tables: `categories` (recursive tree) and
-`transactions` (flat, time-indexed). The AI never sees integer IDs — every
-query that returns a category surfaces it as a `path` string like
-`"Living / Grocery"`, built via a recursive CTE.
+The database lives at `backend/data/budget_trace.db`. Schema + the symbolic
+"Budget" root + the default user row are created on backend startup via
+`bootstrap_db` (called from the FastAPI lifespan in `main.py`). Two domain
+tables: `categories` (recursive tree, single root) and `transactions` (flat,
+time-indexed). The AI never sees integer IDs — every query that returns a
+category surfaces it as a `path` string like `"Living / Grocery"`, built via
+a recursive CTE.
 """
 
 from __future__ import annotations
@@ -107,6 +109,31 @@ def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+
+
+def ensure_root_category(conn: sqlite3.Connection) -> None:
+    """Idempotent. The recursive category-path CTE assumes exactly one row
+    with `parent_id IS NULL` ("Budget"); without it `services/categories.py`
+    can't resolve a parent for newly-created top-level categories."""
+    existing = conn.execute(
+        "SELECT id FROM categories WHERE parent_id IS NULL"
+    ).fetchone()
+    if existing is None:
+        conn.execute(
+            "INSERT INTO categories (name, description, parent_id, is_unknown) "
+            "VALUES ('Budget', 'Top-level container for all spending and savings.', NULL, 0)"
+        )
+
+
+def bootstrap_db() -> None:
+    """One-shot init: schema + Budget root + default user row. Called from
+    the FastAPI startup lifespan so a fresh `rm data/budget_trace.db` plus a
+    server start is the entire first-run experience."""
+    from .features import ensure_default_user
+    with connect() as conn:
+        init_schema(conn)
+        ensure_root_category(conn)
+        ensure_default_user(conn)
 
 
 # ── Path helpers ──────────────────────────────────────────────────────────────

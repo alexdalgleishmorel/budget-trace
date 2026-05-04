@@ -16,6 +16,10 @@ from budget_trace_backend.importers.common import (
     insert_rows,
     source_hash,
 )
+from budget_trace_backend.importers.ai_parser import (
+    UnsupportedFileType,
+    _build_user_content,
+)
 from budget_trace_backend.importers.csv_parser import CsvParseError, parse_csv
 from budget_trace_backend.main import app
 
@@ -76,6 +80,66 @@ def test_csv_handles_debit_credit_split() -> None:
 def test_csv_missing_columns_raises() -> None:
     with pytest.raises(CsvParseError):
         parse_csv(b"foo,bar\n1,2\n")
+
+
+def test_csv_skips_negative_amounts_as_credits() -> None:
+    # Single Amount column, negative = credit-card payment / refund. Skip.
+    csv_bytes = (
+        b"Date,Description,Amount\n"
+        b"2026-04-15,STARBUCKS,5.50\n"
+        b"2026-04-16,PAYMENT FROM ACCOUNT,-200.00\n"
+        b"2026-04-17,IKEA,42.10\n"
+    )
+    rows, errors = parse_csv(csv_bytes)
+    assert {r.merchant for r in rows} == {"STARBUCKS", "IKEA"}
+    assert errors == []
+
+
+def test_csv_truncated_row_is_surfaced_as_error() -> None:
+    # Network-drop scenario: file ends mid-row, no closing newline.
+    csv_bytes = (
+        b"Date,Description,Amount\n"
+        b"2026-04-15,STARBUCKS,5.50\n"
+        b"2026-04-16,IKEA,42.10\n"
+        b'2026-04-17,"truncated-merch'
+    )
+    rows, errors = parse_csv(csv_bytes)
+    assert len(rows) == 2
+    assert len(errors) == 1
+    assert errors[0]["row"] == 4  # header is row 1
+
+
+# ── Real Scotia statements ───────────────────────────────────────────────────
+
+
+REAL_FIXTURES = FIXTURES / "real"
+
+
+def test_real_scotia_csv_parses_only_spend() -> None:
+    """61 spend rows + 12 negative-amount Credit rows that get skipped."""
+    rows, errors = parse_csv(
+        (REAL_FIXTURES / "scotia_visa_april_2026.csv").read_bytes()
+    )
+    assert len(rows) == 61
+    assert errors == []
+    # No negatives should leak through.
+    assert all(r.amount > 0 for r in rows)
+    # Sample known-good merchants survived the parse.
+    merchants = {r.merchant for r in rows}
+    assert "EQ3 LTD" in merchants
+    assert "STARBUCKS 8007827282" in merchants
+    # No payment-to-card rows leaked through as fake spend.
+    assert not any("PAYMENT FROM" in r.merchant for r in rows)
+
+
+def test_real_scotia_truncated_csv_parses_what_it_can() -> None:
+    """Truncated mid-row at byte 4610. csv.reader recovers, the partial last
+    row IndexErrors on amount lookup and is surfaced as a parse error."""
+    rows, errors = parse_csv(
+        (REAL_FIXTURES / "scotia_visa_april_2026-corrupted.csv").read_bytes()
+    )
+    assert len(rows) == 41
+    assert len(errors) == 1
 
 
 # ── Insert + dedupe ──────────────────────────────────────────────────────────
@@ -143,7 +207,7 @@ def test_post_import_ai_unblocked_when_flag_on(
     from budget_trace_backend.importers import ai_parser
     from budget_trace_backend.routes import imports as imports_route
 
-    def fake_parse(content, *, mime):
+    def fake_parse(content, *, mime, filename=None):
         return (
             [ImportedRow(date="2026-04-15", merchant="FAKE AI MERCHANT", amount=12.34)],
             [],
@@ -192,3 +256,64 @@ def test_post_import_unknown_parser_returns_422(client: TestClient) -> None:
         files={"file": ("x.ofx", b"fake", "text/plain")},
     )
     assert resp.status_code == 422
+
+
+# ── ai_parser content detection ──────────────────────────────────────────────
+
+
+def test_ai_parser_detects_pdf_via_magic_bytes() -> None:
+    # %PDF- signature wins even when mime + filename are missing/wrong.
+    block = _build_user_content(
+        b"%PDF-1.7\n...binary stream...",
+        mime="application/octet-stream",
+        filename=None,
+    )[0]
+    assert block["type"] == "document"
+    assert block["source"]["media_type"] == "application/pdf"
+
+
+def test_ai_parser_detects_pdf_via_filename_when_mime_unknown() -> None:
+    # No magic bytes, no useful mime, but filename ends in .pdf.
+    block = _build_user_content(
+        b"x" * 32,
+        mime="application/octet-stream",
+        filename="statement.pdf",
+    )[0]
+    assert block["type"] == "document"
+
+
+def test_ai_parser_detects_text_csv() -> None:
+    block = _build_user_content(
+        b"Date,Merchant,Amount\n2026-04-15,FOO,1.00\n",
+        mime="text/csv",
+        filename="x.csv",
+    )[0]
+    assert block["type"] == "text"
+    assert "Date,Merchant,Amount" in block["text"]
+
+
+def test_ai_parser_refuses_unknown_bytes_to_avoid_billing() -> None:
+    # No magic bytes, no useful mime, no filename. Must NOT call Anthropic.
+    with pytest.raises(UnsupportedFileType):
+        _build_user_content(
+            b"\x00\x01\x02\x03random binary\xff\xfe",
+            mime="application/octet-stream",
+            filename=None,
+        )
+
+
+def test_import_route_unsupported_file_returns_400(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("BUDGET_TRACE_FEATURES", "ai")
+    # Random binary, default Content-Type, no filename hint.
+    resp = client.post(
+        "/transactions/import",
+        data={"parser": "ai"},
+        files={"file": (
+            "mystery", b"\x00\x01\x02\x03binary\xff",
+            "application/octet-stream",
+        )},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "unsupported_file_type"

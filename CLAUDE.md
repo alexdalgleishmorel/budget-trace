@@ -40,8 +40,10 @@ dart format lib/
 Backend (from `backend/`, after `python3 -m venv .venv && . .venv/bin/activate && pip install -e '.[dev]'`):
 
 ```bash
-budget-trace-seed                                          # writes data/budget_trace.db
 uvicorn budget_trace_backend.main:app --reload --port 8000
+# The startup lifespan auto-creates the schema, the symbolic Budget root,
+# and the default user row on first boot — no separate seed step.
+
 pytest                                                     # data-tool tests
 ```
 

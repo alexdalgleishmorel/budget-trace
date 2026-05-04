@@ -149,6 +149,7 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
     final bt = context.bt;
     final atRoot = _path.isEmpty;
     final showLeafView = !atRoot && _current.children.isEmpty;
+    final showFirstRunEmpty = atRoot && _visible.isEmpty;
 
     return SafeArea(
       child: Column(
@@ -190,14 +191,16 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           Expanded(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
-              child: showLeafView
-                  ? _LeafView(node: _current, onEdit: () => _edit(_current))
-                  : _FillGrid(
-                      nodes: _visible,
-                      gap: 12,
-                      onTap: _drill,
-                      onEdit: _edit,
-                    ),
+              child: showFirstRunEmpty
+                  ? _FirstRunEmpty(onCreate: _add)
+                  : showLeafView
+                      ? _LeafView(node: _current, onEdit: () => _edit(_current))
+                      : _FillGrid(
+                          nodes: _visible,
+                          gap: 12,
+                          onTap: _drill,
+                          onEdit: _edit,
+                        ),
             ),
           ),
         ],
@@ -207,7 +210,9 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 
   Widget _buildDesktop(BuildContext context) {
     final bt = context.bt;
-    final showLeafView = _path.isNotEmpty && _current.children.isEmpty;
+    final atRoot = _path.isEmpty;
+    final showLeafView = !atRoot && _current.children.isEmpty;
+    final showFirstRunEmpty = atRoot && _visible.isEmpty;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -249,17 +254,100 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
         Expanded(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
-            child: showLeafView
-                ? _LeafView(node: _current, onEdit: () => _edit(_current))
-                : _FillGrid(
-                    nodes: _visible,
-                    gap: 16,
-                    onTap: _drill,
-                    onEdit: _edit,
-                  ),
+            child: showFirstRunEmpty
+                ? _FirstRunEmpty(onCreate: _add)
+                : showLeafView
+                    ? _LeafView(node: _current, onEdit: () => _edit(_current))
+                    : _FillGrid(
+                        nodes: _visible,
+                        gap: 16,
+                        onTap: _drill,
+                        onEdit: _edit,
+                      ),
           ),
         ),
       ],
+    );
+  }
+}
+
+// ── First-run empty state ───────────────────────────────────────────────────
+
+class _FirstRunEmpty extends StatelessWidget {
+  const _FirstRunEmpty({required this.onCreate});
+
+  final VoidCallback onCreate;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(
+              width: 56,
+              height: 56,
+              decoration: BoxDecoration(
+                color: bt.surface,
+                border: Border.all(color: bt.ruleStrong),
+                borderRadius: const BorderRadius.all(Radius.circular(16)),
+              ),
+              alignment: Alignment.center,
+              child: Icon(Icons.grid_view_outlined, size: 24, color: bt.ink3),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              'No categories yet',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.01,
+                color: bt.ink,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Categories are how Budget Trace organises your spending — and '
+              'how the AI knows where to file things. Create your first one '
+              'to get started.',
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 13.5, color: bt.ink3, height: 1.5),
+            ),
+            const SizedBox(height: 22),
+            GestureDetector(
+              onTap: onCreate,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+                decoration: BoxDecoration(
+                  color: bt.ink,
+                  borderRadius: const BorderRadius.all(Radius.circular(10)),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    BudgetIcons.build('plus',
+                        size: 14, strokeWidth: 2, color: bt.bg),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Create category',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: bt.bg,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

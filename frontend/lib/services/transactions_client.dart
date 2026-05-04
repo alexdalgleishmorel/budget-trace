@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import '../models/transaction.dart';
 import 'api_base.dart';
@@ -122,6 +123,12 @@ class TransactionsClient {
 
   /// Upload a statement file. `parser` defaults to "csv"; "ai" requires the
   /// master `ai` feature flag on the server side and 403s otherwise.
+  ///
+  /// Sets a Content-Type per file extension so the backend can identify the
+  /// payload. The default `MultipartFile.fromBytes` content-type is
+  /// `application/octet-stream`, which the AI parser refuses to forward to
+  /// Claude — sending unidentified bytes to the model has cost users real
+  /// money in the past.
   Future<ImportResult> import({
     required List<int> bytes,
     required String filename,
@@ -131,11 +138,28 @@ class TransactionsClient {
       'POST', Uri.parse('$apiBaseUrl/transactions/import'),
     )
       ..fields['parser'] = parser
-      ..files.add(http.MultipartFile.fromBytes('file', bytes, filename: filename));
+      ..files.add(http.MultipartFile.fromBytes(
+        'file', bytes,
+        filename: filename,
+        contentType: _contentTypeFor(filename),
+      ));
     final streamed = await _client.send(req);
     final resp = await http.Response.fromStream(streamed);
     final json = decodeOrThrow(resp) as Map<String, dynamic>;
     return ImportResult.fromJson(json);
+  }
+
+  static MediaType _contentTypeFor(String filename) {
+    final lower = filename.toLowerCase();
+    if (lower.endsWith('.pdf')) return MediaType('application', 'pdf');
+    if (lower.endsWith('.csv')) return MediaType('text', 'csv');
+    if (lower.endsWith('.png')) return MediaType('image', 'png');
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+      return MediaType('image', 'jpeg');
+    }
+    if (lower.endsWith('.gif')) return MediaType('image', 'gif');
+    if (lower.endsWith('.webp')) return MediaType('image', 'webp');
+    return MediaType('application', 'octet-stream');
   }
 
   void dispose() => _client.close();

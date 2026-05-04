@@ -38,6 +38,11 @@ dependencies:
   # HTTP client for talking to the local backend (Insights chat).
   http: ^1.2.0
 
+  # MediaType for setting Content-Type on multipart uploads. Already a
+  # transitive dep of `http`; declared explicitly so we don't depend on
+  # `http`'s internal dep choices.
+  http_parser: ^4.0.2
+
   # File picker for the Expenses upload dropzone (CSV statement uploads).
   file_picker: ^8.0.0
 
