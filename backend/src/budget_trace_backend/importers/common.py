@@ -48,6 +48,7 @@ class ImportResult:
     rows_skipped_duplicate: int
     rows_failed: int
     inserted_preview: list[dict]
+    inserted_ids: list[int]
     errors: list[dict]
 
     def to_dict(self, *, format_detected: str, ai_usage: dict | None = None) -> dict:
@@ -107,6 +108,7 @@ def insert_rows(
         rows_skipped_duplicate=skipped,
         rows_failed=len(parse_errors or []),
         inserted_preview=preview,
+        inserted_ids=inserted_ids,
         errors=parse_errors or [],
     )
 

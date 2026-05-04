@@ -25,22 +25,18 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-import os
 from datetime import date
 from typing import Any, get_type_hints
 
-from anthropic import Anthropic
-
-from . import features
 from .mcp_server import READ_TOOLS, WRITE_TOOLS
 from .models import ChartSpec, ChatRequest, ChatResponse
+from .services.anthropic_client import get_client, get_model
 
 log = logging.getLogger(__name__)
 
 MAX_TOOL_ITERATIONS = 12
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
-_BASE_SYSTEM_PROMPT = """You are the Insights assistant inside the Budget Trace app. The user asks free-form questions about their spending; you answer using the data tools provided.
+_SYSTEM_PROMPT_TEMPLATE = """You are the Insights assistant inside the Budget Trace app. The user asks free-form questions about their spending; you answer using the data tools provided.
 
 Rules:
 - Use the MCP-style data tools (list_categories, list_transactions, aggregate_spending, top_merchants, compare_periods, forecast) to fetch whatever you need. The tools operate on the user's actual SQLite-backed transaction store.
@@ -48,17 +44,13 @@ Rules:
 - Today's date is {today}. When the user mentions a relative period ("April", "last month", "this quarter"), resolve it to an ISO date range using today's date and pass `start_date` / `end_date` to the data tools.
 - Your final action MUST be exactly one call to `present_to_user`. Do NOT emit text outside of that tool call. The `text` argument is what the user will read; keep it concise (2-4 short sentences). Use a `chart` argument only when a time-series visualisation would meaningfully strengthen your answer (trends across months, period-over-period comparisons, forecasts). For one-off totals, top-N lists, or yes/no answers, omit the chart.
 - When you do return a chart: pick `solid` for observed/historical data and `dashed` for forecasts. Set `x_tick_labels` to human-readable period labels matching the points (e.g. ["Feb '26", "Mar '26", "Apr '26"]).
-"""
-
-_WRITE_PROMPT_ADDENDUM = """
 
 You also have write tools for editing categories and transactions (create_category, rename_category, update_category_description, move_category, delete_category, set_transaction_category, bulk_categorise_merchant, rename_merchant, update_transaction, delete_transaction). When the user asks you to make changes, perform them, then briefly summarise what you did in the `text` argument of `present_to_user`. For destructive operations (delete_category, delete_transaction), state explicitly that the change is done and not reversible from the chat. Never call write tools speculatively — only when the user has clearly asked for a change.
 """
 
 
-def _system_prompt(*, with_writes: bool) -> str:
-    prompt = _BASE_SYSTEM_PROMPT.format(today=date.today().isoformat())
-    return prompt + (_WRITE_PROMPT_ADDENDUM if with_writes else "")
+def _system_prompt() -> str:
+    return _SYSTEM_PROMPT_TEMPLATE.format(today=date.today().isoformat())
 
 
 # ── Tool schema generation ──────────────────────────────────────────────────
@@ -118,10 +110,8 @@ def _build_tool_definition(name: str, fn) -> dict:
     }
 
 
-def _build_tool_definitions(*, with_writes: bool) -> list[dict]:
-    tools = dict(READ_TOOLS)
-    if with_writes:
-        tools.update(WRITE_TOOLS)
+def _build_tool_definitions() -> list[dict]:
+    tools = {**READ_TOOLS, **WRITE_TOOLS}
     return [_build_tool_definition(name, fn) for name, fn in tools.items()] + [PRESENT_TOOL]
 
 
@@ -182,10 +172,8 @@ PRESENT_TOOL: dict = {
 # ── Tool dispatch ────────────────────────────────────────────────────────────
 
 
-def _dispatch(tool_name: str, tool_input: dict, *, with_writes: bool) -> Any:
-    available = dict(READ_TOOLS)
-    if with_writes:
-        available.update(WRITE_TOOLS)
+def _dispatch(tool_name: str, tool_input: dict) -> Any:
+    available = {**READ_TOOLS, **WRITE_TOOLS}
     fn = available.get(tool_name)
     if fn is None:
         return {"error": f"unknown tool: {tool_name}"}
@@ -202,17 +190,16 @@ def _dispatch(tool_name: str, tool_input: dict, *, with_writes: bool) -> Any:
 
 
 def run_chat(request: ChatRequest) -> ChatResponse:
-    client = Anthropic()
-    with_writes = features.get_flags().get("ai_mutations", False)
-    tools = _build_tool_definitions(with_writes=with_writes)
-    system_prompt = _system_prompt(with_writes=with_writes)
+    client = get_client()
+    tools = _build_tool_definitions()
+    system_prompt = _system_prompt()
     messages: list[dict] = [
         {"role": m.role, "content": m.content} for m in request.messages
     ]
 
     for _ in range(MAX_TOOL_ITERATIONS):
         resp = client.messages.create(
-            model=MODEL,
+            model=get_model(),
             max_tokens=2048,
             system=system_prompt,
             tools=tools,
@@ -243,7 +230,7 @@ def run_chat(request: ChatRequest) -> ChatResponse:
         messages.append({"role": "assistant", "content": [b.model_dump() for b in resp.content]})
         tool_results = []
         for tu in tool_uses:
-            result = _dispatch(tu.name, tu.input or {}, with_writes=with_writes)
+            result = _dispatch(tu.name, tu.input or {})
             tool_results.append({
                 "type": "tool_result",
                 "tool_use_id": tu.id,

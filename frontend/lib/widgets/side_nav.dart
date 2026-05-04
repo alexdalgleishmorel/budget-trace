@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'cat_icon.dart';
 import 'cycle_dropdown.dart';
-import 'theme_toggle.dart';
 
 class SideNav extends StatelessWidget {
   const SideNav({
@@ -12,8 +11,8 @@ class SideNav extends StatelessWidget {
     required this.cycleLabel,
     required this.cycleLabels,
     required this.onCycleChange,
-    required this.isDark,
-    required this.onToggleTheme,
+    required this.showInsights,
+    required this.onOpenAccount,
   });
 
   final int current;
@@ -21,9 +20,12 @@ class SideNav extends StatelessWidget {
   final String cycleLabel;
   final List<String> cycleLabels;
   final ValueChanged<String> onCycleChange;
-  final bool isDark;
-  final VoidCallback onToggleTheme;
+  final bool showInsights;
+  final VoidCallback onOpenAccount;
 
+  // Tab indices are stable across the app: 0=Categories, 1=Expenses,
+  // 2=Insights. We just hide the third row when AI is off; the
+  // index→screen mapping in AppShell never shifts.
   static const _items = [
     (icon: 'grid', label: 'Categories'),
     (icon: 'expenses', label: 'Expenses'),
@@ -33,6 +35,7 @@ class SideNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
+    final visibleCount = showInsights ? _items.length : _items.length - 1;
     return Container(
       width: 220,
       decoration: BoxDecoration(
@@ -56,7 +59,7 @@ class SideNav extends StatelessWidget {
               ),
             ),
           ),
-          ...List.generate(_items.length, (i) {
+          ...List.generate(visibleCount, (i) {
             final item = _items[i];
             final active = i == current;
             return Padding(
@@ -128,7 +131,27 @@ class SideNav extends StatelessWidget {
           Container(
             decoration: BoxDecoration(border: Border(top: BorderSide(color: bt.rule))),
             padding: const EdgeInsets.only(top: 12),
-            child: ThemeToggle(isDark: isDark, onToggle: onToggleTheme),
+            child: InkWell(
+              onTap: onOpenAccount,
+              borderRadius: const BorderRadius.all(Radius.circular(6)),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(Icons.settings_outlined, size: 18, color: bt.ink3),
+                    const SizedBox(width: 10),
+                    Text(
+                      'Account',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                        color: bt.ink2,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
         ],
       ),

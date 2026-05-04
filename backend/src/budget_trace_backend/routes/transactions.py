@@ -63,6 +63,17 @@ def _err(e: ServiceError) -> HTTPException:
 # ── Handlers ──────────────────────────────────────────────────────────────────
 
 
+@router.get("/latest_date")
+def latest_date() -> dict:
+    """Date of the most recent transaction, or null when the table is empty.
+    Used by the frontend to default the Expenses tab to a cycle that actually
+    has data instead of the calendar's current month."""
+    from ..db import connect
+    with connect() as conn:
+        row = conn.execute("SELECT MAX(date) AS d FROM transactions").fetchone()
+    return {"date": row["d"]}
+
+
 @router.get("", response_model=list[TransactionOut])
 def list_all(
     start_date: str | None = Query(default=None),

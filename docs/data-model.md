@@ -13,7 +13,9 @@ erDiagram
     chat_sessions ||--o{ chat_messages : "session_id (ON DELETE CASCADE)"
     users {
         INTEGER id PK
-        TEXT    features "JSON blob: {ai_import, ai_mutations, ...}"
+        TEXT    features          "JSON blob: {ai: bool}"
+        TEXT    anthropic_api_key "plaintext, optional"
+        TEXT    theme             "'system' | 'light' | 'dark'"
     }
     categories {
         INTEGER id PK
@@ -79,10 +81,14 @@ CREATE INDEX idx_txn_merchant ON transactions(merchant);
 CREATE UNIQUE INDEX idx_txn_source_hash
     ON transactions(source_hash) WHERE source_hash IS NOT NULL;
 
--- Per-user feature flags. Single-user dev today: id=1.
+-- Per-user settings. Single-user dev today: id=1; auth lands later.
+-- `features` is a JSON blob ({"ai": true}). `anthropic_api_key` is plaintext
+-- (acceptable for local dev). `theme` is one of 'system' | 'light' | 'dark'.
 CREATE TABLE users (
-    id        INTEGER PRIMARY KEY,
-    features  TEXT NOT NULL DEFAULT '{}'                 -- JSON blob
+    id                  INTEGER PRIMARY KEY,
+    features            TEXT NOT NULL DEFAULT '{}',
+    anthropic_api_key   TEXT,
+    theme               TEXT NOT NULL DEFAULT 'system'
 );
 
 -- Insights chat history.

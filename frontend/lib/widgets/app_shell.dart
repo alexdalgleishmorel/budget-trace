@@ -1,35 +1,38 @@
 import 'package:flutter/material.dart';
-import '../screens/categories_screen.dart';
-import '../screens/expenses_screen.dart';
-import '../screens/insights_screen.dart';
 import '../models/budget_category.dart';
 import '../models/budget_cycle.dart';
 import '../models/transaction.dart';
+import '../screens/account_screen.dart';
+import '../screens/categories_screen.dart';
+import '../screens/expenses_screen.dart';
+import '../screens/insights_screen.dart';
 import '../services/categories_client.dart';
 import '../services/category_tree_builder.dart';
-import '../services/features_client.dart';
+import '../services/me_client.dart';
 import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
 import '../utils/cycle_labels.dart';
 import 'bottom_tabs.dart';
 import 'side_nav.dart';
-import 'theme_toggle.dart';
 
 const kDesktopBreakpoint = 600.0;
 
-/// Top-level shell. Owns the loaded category tree, the current cycle's
-/// transaction list, and the active tab. Both data sets come from the
-/// backend; the screens hit the clients directly for mutations and call
-/// `_loadCategories`/`_loadTransactions` to refetch.
+/// Top-level shell. Owns the loaded category tree and the current cycle's
+/// transaction list; takes the user [Me] from the parent (so theme + AI flag
+/// changes from AccountScreen flow back up to MaterialApp). Tab indices are
+/// stable: 0=Categories, 1=Expenses, 2=Insights — the nav widgets just hide
+/// the Insights row when [Me.features.ai] is off.
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
-    required this.isDark,
-    required this.onToggleTheme,
+    required this.me,
+    required this.meClient,
+    required this.onMeChanged,
   });
 
-  final bool isDark;
-  final VoidCallback onToggleTheme;
+  final Me me;
+  final MeClient meClient;
+  final ValueChanged<Me> onMeChanged;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -45,7 +48,6 @@ class _AppShellState extends State<AppShell> {
 
   late final CategoriesClient _categoriesClient;
   late final TransactionsClient _transactionsClient;
-  late final FeaturesClient _featuresClient;
 
   BudgetCategory? _root;
   String? _categoryError;
@@ -53,37 +55,63 @@ class _AppShellState extends State<AppShell> {
   List<Transaction> _transactions = const [];
   String? _transactionsError;
 
-  FeatureFlags _features = FeatureFlags.off;
-
   @override
   void initState() {
     super.initState();
     _categoriesClient = CategoriesClient();
     _transactionsClient = TransactionsClient();
-    _featuresClient = FeaturesClient();
     _cycleLabels = cycleLabelsForLast(12);
+    // Provisional default — refined async via _pickInitialCycle so we land
+    // on a cycle that actually has data (the seed ends a few days back, and
+    // a real user's most recent import is rarely "today").
     _cycleLabel = _cycleLabels.last;
     _loadCategories();
-    _loadTransactions();
-    _loadFeatures();
+    _pickInitialCycle();
+  }
+
+  Future<void> _pickInitialCycle() async {
+    String? latest;
+    try {
+      latest = await _transactionsClient.latestDate();
+    } catch (_) {
+      // Ignore — fall through to the calendar default and let
+      // _loadTransactions surface the underlying connectivity error.
+    }
+    if (mounted && latest != null) {
+      final label = _labelForDate(latest);
+      if (_cycleLabels.contains(label)) {
+        setState(() => _cycleLabel = label);
+      }
+    }
+    await _loadTransactions();
+  }
+
+  static String _labelForDate(String iso) {
+    // iso is YYYY-MM-DD; cycle labels are "Month YYYY".
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December',
+    ];
+    final year = int.parse(iso.substring(0, 4));
+    final month = int.parse(iso.substring(5, 7));
+    return '${months[month - 1]} $year';
+  }
+
+  @override
+  void didUpdateWidget(AppShell old) {
+    super.didUpdateWidget(old);
+    // If AI just flipped off and the user was on Insights, snap to Categories
+    // so we don't render an empty pane behind a hidden tab.
+    if (old.me.features.ai && !widget.me.features.ai && _tab == 2) {
+      _tab = 0;
+    }
   }
 
   @override
   void dispose() {
     _categoriesClient.dispose();
     _transactionsClient.dispose();
-    _featuresClient.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadFeatures() async {
-    try {
-      final f = await _featuresClient.get();
-      if (!mounted) return;
-      setState(() => _features = f);
-    } catch (_) {
-      // Feature flag failure is non-fatal — fall back to all-off.
-    }
   }
 
   Future<void> _loadCategories() async {
@@ -132,6 +160,18 @@ class _AppShellState extends State<AppShell> {
     await Future.wait([_loadCategories(), _loadTransactions()]);
   }
 
+  Future<void> _openAccount() async {
+    final route = MaterialPageRoute<void>(
+      builder: (_) => AccountScreen(
+        me: widget.me,
+        client: widget.meClient,
+        onMeChanged: widget.onMeChanged,
+      ),
+      fullscreenDialog: true,
+    );
+    await Navigator.of(context).push(route);
+  }
+
   BudgetCycle get _cycle => BudgetCycle(
         label: _cycleLabel,
         root: _root!,
@@ -170,14 +210,14 @@ class _AppShellState extends State<AppShell> {
         cycle: _cycle,
         transactions: _transactions,
         client: _transactionsClient,
-        features: _features,
+        aiEnabled: widget.me.features.ai,
         onChanged: _refetchAll,
         cycleLabels: _cycleLabels,
         onCycleChange: _onCycleChange,
       );
     }
 
-    if (tab == 2) {
+    if (tab == 2 && widget.me.features.ai) {
       return const InsightsScreen();
     }
 
@@ -189,6 +229,7 @@ class _AppShellState extends State<AppShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth >= kDesktopBreakpoint;
+        final showInsights = widget.me.features.ai;
 
         if (isDesktop) {
           return Scaffold(
@@ -200,8 +241,8 @@ class _AppShellState extends State<AppShell> {
                   cycleLabel: _cycleLabel,
                   cycleLabels: _cycleLabels,
                   onCycleChange: _onCycleChange,
-                  isDark: widget.isDark,
-                  onToggleTheme: widget.onToggleTheme,
+                  showInsights: showInsights,
+                  onOpenAccount: _openAccount,
                 ),
                 Expanded(child: _buildScreen(_tab)),
               ],
@@ -218,21 +259,54 @@ class _AppShellState extends State<AppShell> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    ThemeToggle(
-                      isDark: widget.isDark,
-                      onToggle: widget.onToggleTheme,
-                    ),
+                    _SettingsButton(onTap: _openAccount),
                   ],
                 ),
               ),
               BottomTabsBar(
                 current: _tab,
                 onNav: (i) => setState(() => _tab = i),
+                showInsights: showInsights,
               ),
             ],
           ),
         );
       },
+    );
+  }
+}
+
+/// Small icon-only affordance that opens the AccountScreen.
+class _SettingsButton extends StatelessWidget {
+  const _SettingsButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BudgetRadius.btnBR,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.settings_outlined, size: 16, color: bt.ink3),
+            const SizedBox(width: 8),
+            Text(
+              'Account',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: bt.ink3,
+                letterSpacing: 0.66,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

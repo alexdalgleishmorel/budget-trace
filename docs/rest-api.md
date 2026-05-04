@@ -94,17 +94,20 @@ Edge cases that return `409`:
 
 The CategoryChip dropdown and the TransactionEditModal in the Expenses screen both call this exact shape.
 
-## Features
+## Me — settings
 
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
-| `GET` | `/me/features` | — | `{ ai_import: bool, ai_mutations: bool }` |
+| `GET` | `/me` | — | `{ features: { ai }, theme, anthropic_api_key_set }` |
+| `PATCH` | `/me` | partial: `{ features?, theme?, anthropic_api_key? }` | same as GET |
 
-Single-user dev today; this returns the flags for user id 1. The `BUDGET_TRACE_FEATURES` env var (comma-separated flag names) overrides the DB for local dev — handy for flipping `ai_import` on without touching the DB.
+The key value itself is **never** echoed — only `anthropic_api_key_set` is. PATCH is partial: omit a field to leave it unchanged. Pass `anthropic_api_key: null` to clear the key; an empty string is a 422 (use null instead). `theme` is one of `system`, `light`, `dark`. `features` is a partial dict — today the only flag is `ai`.
+
+Single-user dev today (id=1). The `BUDGET_TRACE_FEATURES=ai` env var still wins over the DB on the read path, useful for tests / CI. See [account.md](account.md) for the auth-TODO.
 
 ## Chat
 
-`POST /chat` is documented in [insights-ai.md](insights-ai.md). The contract there hasn't changed; what *did* change in this iteration is that the orchestrator gates write tools behind `ai_mutations`.
+Routes documented in [insights-ai.md](insights-ai.md). `POST /chat/sessions/{id}/messages` is the only Anthropic-hitting route — it returns `403 feature_disabled` when `ai` is off, and `400 ai_key_missing` when `ai` is on but no key is configured. Historical `GET`s and `GET /chat/help` stay open regardless.
 
 ## What's *not* here
 

@@ -50,6 +50,14 @@ class TransactionsClient {
 
   final http.Client _client;
 
+  /// ISO date of the most-recent transaction, or null when the table is
+  /// empty. Used by AppShell to default to a cycle that has data.
+  Future<String?> latestDate() async {
+    final resp = await _client.get(Uri.parse('$apiBaseUrl/transactions/latest_date'));
+    final json = decodeOrThrow(resp) as Map<String, dynamic>;
+    return json['date'] as String?;
+  }
+
   Future<List<TransactionDto>> list({
     String? startDate,
     String? endDate,
@@ -113,7 +121,7 @@ class TransactionsClient {
   }
 
   /// Upload a statement file. `parser` defaults to "csv"; "ai" requires the
-  /// `ai_import` feature flag on the server side and 403s otherwise.
+  /// master `ai` feature flag on the server side and 403s otherwise.
   Future<ImportResult> import({
     required List<int> bytes,
     required String filename,
@@ -141,6 +149,7 @@ class ImportResult {
     required this.rowsSkippedDuplicate,
     required this.rowsFailed,
     required this.errors,
+    this.categorization,
   });
 
   final String formatDetected;
@@ -149,6 +158,7 @@ class ImportResult {
   final int rowsSkippedDuplicate;
   final int rowsFailed;
   final List<Map<String, dynamic>> errors;
+  final CategorizationResult? categorization;
 
   factory ImportResult.fromJson(Map<String, dynamic> j) => ImportResult(
         formatDetected: j['format_detected'] as String,
@@ -159,6 +169,9 @@ class ImportResult {
         errors: (j['errors'] as List? ?? [])
             .map((e) => (e as Map<String, dynamic>))
             .toList(),
+        categorization: j['categorization'] is Map<String, dynamic>
+            ? CategorizationResult.fromJson(j['categorization'] as Map<String, dynamic>)
+            : null,
       );
 
   String get summary {
@@ -168,6 +181,39 @@ class ImportResult {
                                       '${rowsSkippedDuplicate == 1 ? "" : "s"} skipped',
       if (rowsFailed > 0) '$rowsFailed failed',
     ];
+    final cat = categorization;
+    if (cat != null) {
+      if (cat.error == null) {
+        parts.add('${cat.categorized} categorized');
+      } else if (cat.error == 'ai_key_missing') {
+        parts.add('AI key not set — set one in Account to auto-categorize');
+      } else {
+        parts.add('AI categorize failed');
+      }
+    }
     return parts.join(' · ');
   }
+}
+
+/// Mirror of the backend's `categorization` block on `/transactions/import`.
+class CategorizationResult {
+  const CategorizationResult({
+    required this.attempted,
+    required this.categorized,
+    required this.skippedNoMatch,
+    this.error,
+  });
+
+  final int attempted;
+  final int categorized;
+  final int skippedNoMatch;
+  final String? error;
+
+  factory CategorizationResult.fromJson(Map<String, dynamic> j) =>
+      CategorizationResult(
+        attempted: j['attempted'] as int? ?? 0,
+        categorized: j['categorized'] as int? ?? 0,
+        skippedNoMatch: j['skipped_no_match'] as int? ?? 0,
+        error: j['error'] as String?,
+      );
 }

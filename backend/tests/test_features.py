@@ -1,4 +1,4 @@
-"""Feature-flag tests. Don't touch the Anthropic API."""
+"""Feature-flag tests for the single `ai` flag. Don't touch the Anthropic API."""
 
 from __future__ import annotations
 
@@ -26,22 +26,18 @@ def client(seeded_db: Path) -> TestClient:
     return TestClient(app)
 
 
-def test_get_features_defaults_all_false(seeded_db: Path) -> None:
-    flags = features.get_flags()
-    assert flags == {"ai_import": False, "ai_mutations": False}
+def test_get_flags_default_false(seeded_db: Path) -> None:
+    assert features.get_flags() == {"ai": False}
 
 
 def test_set_flag_persists(seeded_db: Path) -> None:
-    features.set_flag("ai_import", True)
-    flags = features.get_flags()
-    assert flags["ai_import"] is True
-    assert flags["ai_mutations"] is False
+    features.set_flag("ai", True)
+    assert features.get_flags() == {"ai": True}
 
 
 def test_env_override_enables_flag(seeded_db: Path, monkeypatch) -> None:
-    monkeypatch.setenv("BUDGET_TRACE_FEATURES", "ai_mutations,ai_import")
-    flags = features.get_flags()
-    assert flags == {"ai_import": True, "ai_mutations": True}
+    monkeypatch.setenv("BUDGET_TRACE_FEATURES", "ai")
+    assert features.get_flags() == {"ai": True}
 
 
 def test_set_flag_unknown_raises(seeded_db: Path) -> None:
@@ -49,37 +45,8 @@ def test_set_flag_unknown_raises(seeded_db: Path) -> None:
         features.set_flag("not_a_flag", True)
 
 
-def test_me_features_route(client: TestClient) -> None:
-    resp = client.get("/me/features")
-    assert resp.status_code == 200
-    assert resp.json() == {"ai_import": False, "ai_mutations": False}
-
-
-def test_import_ai_unblocked_when_flag_on(client: TestClient, monkeypatch) -> None:
-    monkeypatch.setenv("BUDGET_TRACE_FEATURES", "ai_import")
-
-    # Stub the AI parser — the actual Anthropic call needs an API key and
-    # network. We just verify the route reaches the parser and the response
-    # carries `ai_usage`.
-    from budget_trace_backend.importers import ai_parser
-    from budget_trace_backend.importers.common import ImportedRow
-
-    def fake_parse(content, *, mime):
-        return (
-            [ImportedRow(date="2026-04-15", merchant="FAKE AI MERCHANT", amount=12.34)],
-            [],
-            {"input_tokens": 100, "output_tokens": 20},
-        )
-
-    monkeypatch.setattr(ai_parser, "parse_with_ai", fake_parse)
-
-    resp = client.post(
-        "/transactions/import",
-        data={"parser": "ai"},
-        files={"file": ("x.pdf", b"%PDF\n(fake)", "application/pdf")},
-    )
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["format_detected"] == "ai"
-    assert body["rows_inserted"] == 1
-    assert body["ai_usage"] == {"input_tokens": 100, "output_tokens": 20}
+def test_old_flag_names_are_gone() -> None:
+    # Hard-coded sanity check so a future refactor that re-introduces the
+    # old flags trips here, not silently in route handlers.
+    assert "ai_import" not in features.KNOWN_FLAGS
+    assert "ai_mutations" not in features.KNOWN_FLAGS

@@ -7,9 +7,10 @@ Guidance for Claude Code working in this repository.
 The architecture is documented in [`docs/`](docs/README.md). Before changing anything substantive, read the doc that matches your task:
 
 - Just trying to run it → [`docs/running-end-to-end.md`](docs/running-end-to-end.md)
-- The full REST surface (Categories, Transactions, Features) → [`docs/rest-api.md`](docs/rest-api.md)
-- CSV upload, AI parser, dedupe → [`docs/upload.md`](docs/upload.md)
+- The full REST surface (Categories, Transactions, `/me`) → [`docs/rest-api.md`](docs/rest-api.md)
+- CSV upload, AI parser, auto-categorize, dedupe → [`docs/upload.md`](docs/upload.md)
 - Touching the AI chat loop, MCP tools (read + write), prompt, or `ChartSpec` shape → [`docs/insights-ai.md`](docs/insights-ai.md)
+- The `/me` settings surface — feature flags, API key, theme, auth-TODO → [`docs/account.md`](docs/account.md)
 - Anything in `backend/` → [`docs/backend.md`](docs/backend.md)
 - Anything in `frontend/` → [`docs/frontend.md`](docs/frontend.md)
 - Schema or seed → [`docs/data-model.md`](docs/data-model.md)
@@ -20,9 +21,9 @@ The architecture is documented in [`docs/`](docs/README.md). Before changing any
 Two halves:
 
 - **`frontend/`** — Flutter app, three tabs (Categories, Expenses, Insights). All three talk to the Python backend; there is no in-memory mock data.
-- **`backend/`** — Python FastAPI app. Owns the SQLite store (seeded with 12 months of mock transactions), exposes a REST API for Categories + Transactions, runs the chat orchestrator that calls Anthropic, and hosts an MCP server (read + write tools) that the chat AI uses for data access and (when `ai_mutations` is on) mutations.
+- **`backend/`** — Python FastAPI app. Owns the SQLite store (seeded with 12 months of mock transactions), exposes a REST API for Categories + Transactions + `/me` settings, runs the chat orchestrator that calls Anthropic, and hosts an MCP server (read + write tools) that the chat AI uses for data access and mutations. The whole AI surface (chat, AI parser, auto-categorize-on-import) is gated behind a single `ai` flag toggled via the Account screen.
 
-CSV upload is supported on the free tier; PDF / screenshot / etc. are handled by the AI parser when `ai_import` is enabled. See [`docs/architecture.md`](docs/architecture.md) for the diagram and [`docs/upload.md`](docs/upload.md) for the upload contract.
+CSV upload is always available. PDF / screenshot / etc. are handled by the AI parser when `ai` is enabled, and every successful import also runs the rows through an auto-categorizer when `ai` is on. See [`docs/architecture.md`](docs/architecture.md) for the diagram and [`docs/upload.md`](docs/upload.md) for the upload contract.
 
 ## Commands
 
@@ -44,12 +45,12 @@ uvicorn budget_trace_backend.main:app --reload --port 8000
 pytest                                                     # data-tool tests
 ```
 
-`ANTHROPIC_API_KEY` must be set before starting the backend's HTTP server (the seed script doesn't need it).
+An Anthropic API key is needed for any AI surface (chat, PDF/AI parser, auto-categorize). It can be set via the Account screen (`PATCH /me`, persisted in SQLite) or the `ANTHROPIC_API_KEY` env var (fallback). The seed and CSV-only flows don't need a key.
 
 ## Frontend architecture (quick reference)
 
 - **Responsive layout.** Every screen uses `LayoutBuilder` at a **600 dp breakpoint**; private `_MobileXxx` / `_DesktopXxx` widget classes per file.
-- **Shell.** `AppShell` ([frontend/lib/widgets/app_shell.dart](frontend/lib/widgets/app_shell.dart)) owns the mutable category root and transaction list, threads them down to Categories and Expenses. The Insights tab is self-contained — it talks directly to the backend.
+- **Shell.** `AppShell` ([frontend/lib/widgets/app_shell.dart](frontend/lib/widgets/app_shell.dart)) owns the mutable category root and transaction list, threads them down to Categories and Expenses. The Insights tab is self-contained — it talks directly to the backend. The top-level `BudgetTraceApp` ([frontend/lib/main.dart](frontend/lib/main.dart)) owns the `Me` state (features + theme + key-set bool from `GET /me`) and rebuilds `MaterialApp` on theme change. The Insights tab is hidden when `me.features.ai` is off.
 - **Theming.** `BudgetTheme` is a `ThemeExtension`; reach it via `context.bt`. Semantic colours: `ink`/`ink2`-`ink5`, `bg`/`surface`/`surface2`, `pos`/`neg`/`warn`/`warnBg`, `rule`/`ruleStrong`. Never use raw `Colors.*` for visible UI.
 - **Icons.** `BudgetIcons` ([frontend/lib/widgets/cat_icon.dart](frontend/lib/widgets/cat_icon.dart)) — Lucide-style SVG paths via a custom `CustomPainter`. Use `BudgetIcons.build(key, size, strokeWidth, color)`. Categories no longer carry icons in the UI.
 - **Generic chart.** [`TimeseriesChart`](frontend/lib/widgets/timeseries_chart.dart) — multi-series, dashed forecasts, theme-derived palette, optional `xTickLabels`. Driven by `ChartSpec` JSON returned from the backend.

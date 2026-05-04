@@ -1,4 +1,4 @@
-"""AI-driven statement parser. Premium feature, gated by `ai_import`.
+"""AI-driven statement parser. Premium feature, gated by the master `ai` flag.
 
 Sends the file contents to Claude with a single tool, `parse_transactions`,
 whose schema is the same `ImportedRow` shape the CSV path produces. Claude
@@ -14,15 +14,11 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 
-from anthropic import Anthropic
-
+from ..services.anthropic_client import get_client, get_model
 from .common import ImportedRow
 
 log = logging.getLogger(__name__)
-
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
 PARSE_TOOL = {
     "name": "parse_transactions",
@@ -62,12 +58,12 @@ SYSTEM_PROMPT = (
 
 def parse_with_ai(content: bytes, *, mime: str | None) -> tuple[list[ImportedRow], list[dict], dict]:
     """Returns `(rows, errors, ai_usage)` to feed into `insert_rows` and the
-    response body."""
-    client = Anthropic()
+    response body. Raises `AiKeyMissing` if no Anthropic key is configured."""
+    client = get_client()
     user_content = _build_user_content(content, mime=mime)
 
     resp = client.messages.create(
-        model=MODEL,
+        model=get_model(),
         max_tokens=4096,
         system=SYSTEM_PROMPT,
         tools=[PARSE_TOOL],

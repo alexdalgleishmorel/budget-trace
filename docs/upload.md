@@ -20,11 +20,11 @@ If the file has separate `debit` and `credit` columns, debit rows go in (as posi
 
 If header detection fails, the response is `400 csv_parse_failed`. The error message names which column is missing.
 
-## AI parser (premium, behind `ai_import`)
+## AI parser (gated by the master `ai` flag)
 
-When the user has the `ai_import` flag enabled, the dropzone shows a **Use AI parsing** toggle and accepts both `.csv` and `.pdf`. The toggle is **off by default even when the flag is on** — opt-in per upload because it costs API tokens.
+When the user has the `ai` flag enabled (Account → Features), the dropzone shows a **Use AI parsing** toggle and accepts both `.csv` and `.pdf`. The toggle is **off by default even when the flag is on** — opt-in per upload because it costs API tokens.
 
-Server-side: `POST /transactions/import?parser=ai` checks `users.features.ai_import` and `403`s when off. When on, it routes to `importers/ai_parser.py`, which:
+Server-side: `POST /transactions/import?parser=ai` checks `users.features.ai` and returns `403 feature_disabled` when off. When on, it routes to `importers/ai_parser.py`, which:
 
 1. For `text/*` payloads (CSV mistakenly sent as AI): pass the text directly.
 2. For PDFs: try `pdfplumber` text extraction first. If that fails, fall back to base64 document input.
@@ -33,6 +33,16 @@ Server-side: `POST /transactions/import?parser=ai` checks `users.features.ai_imp
 The orchestrator then sends the content to Claude with one tool, `parse_transactions`, whose schema *is* the `ImportedRow` shape (date, merchant, amount). Claude calls it once with the full row list; the orchestrator hands those rows off to the same `insert_rows` path the CSV parser uses.
 
 The response includes an `ai_usage` object (`{input_tokens, output_tokens}`) for cost observability. CSV imports leave `ai_usage` as `null`.
+
+If `ai` is on but no Anthropic API key is configured (neither stored on the user nor in the `ANTHROPIC_API_KEY` env), the route returns `400 ai_key_missing`. CSV uploads are unaffected — they never need a key.
+
+## Auto-categorize on import (gated by `ai`)
+
+When `ai` is on, every successful import (CSV or AI) runs the freshly-inserted rows through `importers/categorizer.py` before returning. One Claude call per import: the model receives the rows + the leaf category list (with descriptions) and returns an `assign_categories` tool call mapping `transaction_id → category_path`. Anything the model isn't confident about it omits, leaving the row at `category_id = NULL` for the user to handle.
+
+It's best-effort. Every failure mode (missing key, network error, no leaves defined, unparseable model output) shows up as a structured `error` in the response — the import itself is always 200.
+
+## Response shape
 
 ## Dedupe
 
@@ -50,9 +60,7 @@ The seed populates `source_hash` for every seeded transaction too, so imports ag
 
 Manual `POST /transactions` (single-row create from the UI) does **not** set `source_hash`, so two manually-added rows with identical `(date, merchant, amount)` coexist. The hash is an importer concern only.
 
-## Response shape
-
-Same regardless of which parser ran:
+Same shape regardless of which parser ran. The `categorization` key is omitted when `ai` is off.
 
 ```json
 {
@@ -64,20 +72,34 @@ Same regardless of which parser ran:
   "rows_inserted": 71,
   "preview": [ /* first 20 inserted rows */ ],
   "errors": [ {"row": 41, "reason": "amount unparseable: 'N/A'"} ],
-  "ai_usage": null
+  "ai_usage": null,
+  "categorization": {
+    "attempted": 71,
+    "categorized": 64,
+    "skipped_no_match": 7,
+    "ai_usage": {"input_tokens": 1240, "output_tokens": 380}
+  }
 }
+```
+
+When the categorizer trips on a missing key or a transient failure, `categorization` carries an `error` field instead:
+
+```json
+{ "categorization": {"attempted": 71, "categorized": 0, "skipped_no_match": 71, "error": "ai_key_missing"} }
 ```
 
 `job_id` is currently informational — there's no async job storage yet. CSV finishes in the POST, and the AI path is fast enough to do the same. If we ever need backgrounded uploads, a polling endpoint slots in here.
 
 ## Flipping the flag locally
 
+The simplest path is the **Account screen** in the app. For tests / CI / a fresh dev shell, the env override still works:
+
 ```sh
-export BUDGET_TRACE_FEATURES=ai_import
+export BUDGET_TRACE_FEATURES=ai
 uvicorn budget_trace_backend.main:app --reload --port 8000
 ```
 
-That single env var enables the flag for the running process — no DB write, no restart needed if you're only flipping it. To make it sticky, instead use `python -c "from budget_trace_backend.features import set_flag; set_flag('ai_import', True)"`.
+That env var wins over the DB for the running process. To persist instead, use `python -c "from budget_trace_backend.features import set_flag; set_flag('ai', True)"` or `curl -X PATCH localhost:8000/me -d '{"features":{"ai":true}}'`.
 
 ## What's not here
 

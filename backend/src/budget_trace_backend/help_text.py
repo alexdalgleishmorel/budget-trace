@@ -14,7 +14,7 @@ from typing import Any, Callable, get_type_hints
 from .mcp_server import READ_TOOLS, WRITE_TOOLS
 
 
-def build_help_markdown(*, with_writes: bool) -> str:
+def build_help_markdown() -> str:
     parts: list[str] = []
     parts.append("# Insights help")
     parts.append("")
@@ -46,26 +46,15 @@ def build_help_markdown(*, with_writes: bool) -> str:
     for name, fn in READ_TOOLS.items():
         parts.extend(_describe_tool(name, fn))
 
-    if with_writes:
-        parts.append("## What I can change")
-        parts.append("")
-        parts.append(
-            "Mutations are gated behind the `ai_mutations` feature flag. When "
-            "you ask me to change something, I'll do it and tell you what I "
-            "did. Destructive changes (delete) are not reversible from chat."
-        )
-        parts.append("")
-        for name, fn in WRITE_TOOLS.items():
-            parts.extend(_describe_tool(name, fn))
-    else:
-        parts.append("## Editing your data")
-        parts.append("")
-        parts.append(
-            "AI-driven edits (creating/renaming/deleting categories, "
-            "recategorising transactions, etc.) are currently **off**. Enable "
-            "the `ai_mutations` feature flag in Settings to turn them on."
-        )
-        parts.append("")
+    parts.append("## What I can change")
+    parts.append("")
+    parts.append(
+        "When you ask me to change something, I'll do it and tell you what I "
+        "did. Destructive changes (delete) are not reversible from chat."
+    )
+    parts.append("")
+    for name, fn in WRITE_TOOLS.items():
+        parts.extend(_describe_tool(name, fn))
 
     return "\n".join(parts).rstrip() + "\n"
 

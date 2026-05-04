@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import '../models/budget_category.dart';
 import '../models/budget_cycle.dart';
 import '../models/transaction.dart';
-import '../services/features_client.dart';
 import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
 import '../utils/format.dart';
@@ -23,7 +22,7 @@ class ExpensesScreen extends StatefulWidget {
     required this.cycle,
     required this.transactions,
     required this.client,
-    required this.features,
+    required this.aiEnabled,
     required this.onChanged,
     required this.cycleLabels,
     required this.onCycleChange,
@@ -32,7 +31,7 @@ class ExpensesScreen extends StatefulWidget {
   final BudgetCycle cycle;
   final List<Transaction> transactions;
   final TransactionsClient client;
-  final FeatureFlags features;
+  final bool aiEnabled;
   final Future<void> Function() onChanged;
   final List<String> cycleLabels;
   final ValueChanged<String> onCycleChange;
@@ -122,7 +121,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             onEditTransaction: _openEditModal,
             client: widget.client,
             onImported: widget.onChanged,
-            features: widget.features,
+            aiEnabled: widget.aiEnabled,
           );
         }
         return _MobileExpenses(
@@ -140,7 +139,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           onCycleChange: widget.onCycleChange,
           client: widget.client,
           onImported: widget.onChanged,
-          features: widget.features,
+          aiEnabled: widget.aiEnabled,
         );
       },
     );
@@ -165,7 +164,7 @@ class _MobileExpenses extends StatelessWidget {
     required this.onCycleChange,
     required this.client,
     required this.onImported,
-    required this.features,
+    required this.aiEnabled,
   });
 
   final BudgetCycle cycle;
@@ -182,7 +181,7 @@ class _MobileExpenses extends StatelessWidget {
   final ValueChanged<String> onCycleChange;
   final TransactionsClient client;
   final Future<void> Function() onImported;
-  final FeatureFlags features;
+  final bool aiEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -241,7 +240,7 @@ class _MobileExpenses extends StatelessWidget {
                     compact: true,
                     client: client,
                     onImported: onImported,
-                    features: features,
+                    aiEnabled: aiEnabled,
                   ),
                   if (unknown.isNotEmpty) ...[
                     const SizedBox(height: 18),
@@ -325,7 +324,7 @@ class _DesktopExpenses extends StatefulWidget {
     required this.onEditTransaction,
     required this.client,
     required this.onImported,
-    required this.features,
+    required this.aiEnabled,
   });
 
   final BudgetCycle cycle;
@@ -336,7 +335,7 @@ class _DesktopExpenses extends StatefulWidget {
   final ValueChanged<Transaction> onEditTransaction;
   final TransactionsClient client;
   final Future<void> Function() onImported;
-  final FeatureFlags features;
+  final bool aiEnabled;
 
   @override
   State<_DesktopExpenses> createState() => _DesktopExpensesState();
@@ -442,7 +441,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                     Dropzone(
                       client: widget.client,
                       onImported: widget.onImported,
-                      features: widget.features,
+                      aiEnabled: widget.aiEnabled,
                     ),
                     const SizedBox(height: 18),
                     Row(

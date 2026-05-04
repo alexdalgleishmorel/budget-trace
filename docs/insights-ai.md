@@ -17,7 +17,7 @@ The orchestrator gives Claude **MCP read tools + MCP write tools (gated) + one i
 | `compare_periods` | Total + abs/pct delta between two windows. Period A is the baseline (older). |
 | `forecast` | Trailing-average or least-squares projection. Returns `{historical, forecast}` ready for the solid/dashed series convention. |
 
-### Write tools (gated by the `ai_mutations` feature flag)
+### Write tools
 
 | Tool | What it does |
 |------|--------------|
@@ -32,7 +32,7 @@ The orchestrator gives Claude **MCP read tools + MCP write tools (gated) + one i
 | `update_transaction(transaction_id, ...)` | Single-row edit (date / merchant / amount / category). |
 | `delete_transaction(transaction_id)` | Hard delete. |
 
-When `ai_mutations` is off, write tools are not registered and the system prompt's "you can also write" addendum is omitted. Every write-tool call is logged at INFO level so anything the AI did is recoverable from the backend log.
+Write tools are always registered when chat is reachable — gating happens upstream at the route level (the master `ai` flag controls whether the chat is reachable at all). Every write-tool call is logged at INFO level so anything the AI did is recoverable from the backend log.
 
 ### Output tool
 

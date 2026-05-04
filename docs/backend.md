@@ -22,10 +22,10 @@ Health check: `curl http://localhost:8000/healthz`.
 
 | Name | Default | What it does |
 |------|---------|--------------|
-| `ANTHROPIC_API_KEY` | — required for `/chat` and AI imports | Picked up by the Anthropic SDK. |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Override the model used in the chat orchestrator and the AI parser. |
+| `ANTHROPIC_API_KEY` | optional | Fallback when no key is stored on the user (set via Account → API key, or `PATCH /me`). Required for any AI surface (chat, AI parser, auto-categorize) when the user-stored key is empty. |
+| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Override the model used in the chat orchestrator, the AI parser, and the auto-categorizer. |
 | `BUDGET_TRACE_DB` | `<repo>/backend/data/budget_trace.db` | Override the SQLite path (used by tests). |
-| `BUDGET_TRACE_FEATURES` | unset | Comma-separated flag names (e.g. `ai_import,ai_mutations`) that override the DB-stored feature flags for local dev. |
+| `BUDGET_TRACE_FEATURES` | unset | Comma-separated flag names (just `ai` today) that force a flag on for the running process. Wins over the DB. Useful for tests and CI. |
 
 ## Layout
 
@@ -36,24 +36,29 @@ backend/
   src/budget_trace_backend/
     __init__.py
     main.py                            # FastAPI app, /chat, /healthz, mounts routers
-    chat.py                            # orchestrator (Anthropic loop, present_to_user, write-tool gating)
+    chat.py                            # orchestrator (Anthropic loop, present_to_user)
     mcp_server.py                      # READ_TOOLS + WRITE_TOOLS + stdio MCP entry point
     db.py                              # sqlite3 connect + CATEGORY_PATHS_CTE + schema
     seed.py                            # 12-month seasonal mock generator
-    features.py                        # per-user feature flag helpers
+    features.py                        # per-user settings (flags, theme, API key)
+    help_text.py                       # /chat/help markdown (introspects tool registries)
     models.py                          # pydantic ChartSpec / ChatRequest / ChatResponse
     services/
+      anthropic_client.py              # get_client() / get_model() — single key + model resolver
       categories.py                    # category mutation services (used by routes + MCP)
+      chat_sessions.py                 # session + message persistence
       transactions.py                  # transaction mutation services
     routes/
       categories.py                    # CRUD HTTP handlers
+      chat_sessions.py                 # /chat/sessions, /chat/help (gated by `ai`)
       transactions.py                  # CRUD + bulk_rename
-      imports.py                       # POST /transactions/import (CSV + AI)
-      features.py                      # GET /me/features
+      imports.py                       # POST /transactions/import (CSV + AI + auto-categorize)
+      me.py                            # GET/PATCH /me — features, theme, API key
     importers/
       common.py                        # ImportedRow, source_hash, insert_rows
       csv_parser.py                    # CSV header detection + parsing
-      ai_parser.py                     # Anthropic-driven parsing (gated)
+      ai_parser.py                     # Anthropic-driven parsing (gated by `ai`)
+      categorizer.py                   # post-import auto-categorize (gated by `ai`)
   data/
     budget_trace.db                    # gitignored; created by seed
   tests/

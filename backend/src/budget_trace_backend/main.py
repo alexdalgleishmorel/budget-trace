@@ -13,8 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .routes import categories as categories_routes
 from .routes import chat_sessions as chat_sessions_routes
-from .routes import features as features_routes
 from .routes import imports as imports_routes
+from .routes import me as me_routes
 from .routes import transactions as transactions_routes
 
 logging.basicConfig(level=logging.INFO)
@@ -32,7 +32,7 @@ app.add_middleware(
 app.include_router(categories_routes.router)
 app.include_router(transactions_routes.router)
 app.include_router(imports_routes.router)
-app.include_router(features_routes.router)
+app.include_router(me_routes.router)
 app.include_router(chat_sessions_routes.router)
 
 

@@ -134,6 +134,57 @@ def test_post_import_ai_returns_403_when_flag_off(client: TestClient) -> None:
     assert resp.json()["detail"]["code"] == "feature_disabled"
 
 
+def test_post_import_ai_unblocked_when_flag_on(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("BUDGET_TRACE_FEATURES", "ai")
+
+    # Stub both the parser and the categorizer — neither should hit the network.
+    from budget_trace_backend.importers import ai_parser
+    from budget_trace_backend.routes import imports as imports_route
+
+    def fake_parse(content, *, mime):
+        return (
+            [ImportedRow(date="2026-04-15", merchant="FAKE AI MERCHANT", amount=12.34)],
+            [],
+            {"input_tokens": 100, "output_tokens": 20},
+        )
+
+    def fake_categorize(ids):
+        return {"attempted": len(ids), "categorized": len(ids),
+                "skipped_no_match": 0, "ai_usage": {"input_tokens": 1, "output_tokens": 1}}
+
+    monkeypatch.setattr(ai_parser, "parse_with_ai", fake_parse)
+    monkeypatch.setattr(imports_route, "categorize_rows", fake_categorize)
+
+    resp = client.post(
+        "/transactions/import",
+        data={"parser": "ai"},
+        files={"file": ("x.pdf", b"%PDF\n(fake)", "application/pdf")},
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["format_detected"] == "ai"
+    assert body["rows_inserted"] == 1
+    assert body["ai_usage"] == {"input_tokens": 100, "output_tokens": 20}
+    assert body["categorization"]["categorized"] == 1
+
+
+def test_post_import_ai_missing_key_returns_400(
+    client: TestClient, monkeypatch
+) -> None:
+    monkeypatch.setenv("BUDGET_TRACE_FEATURES", "ai")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    resp = client.post(
+        "/transactions/import",
+        data={"parser": "ai"},
+        files={"file": ("x.pdf", b"%PDF\n(fake)", "application/pdf")},
+    )
+    assert resp.status_code == 400
+    assert resp.json()["detail"]["code"] == "ai_key_missing"
+
+
 def test_post_import_unknown_parser_returns_422(client: TestClient) -> None:
     resp = client.post(
         "/transactions/import",

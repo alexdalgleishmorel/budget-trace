@@ -46,12 +46,15 @@ CREATE INDEX IF NOT EXISTS idx_txn_merchant ON transactions(merchant);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_source_hash
     ON transactions(source_hash) WHERE source_hash IS NOT NULL;
 
--- Per-user feature flags. Single-user dev today: id=1.
--- `features` is a JSON blob ({"ai_import": true, "ai_mutations": true}) so
--- we can add new flags without migrations.
+-- Per-user settings. Single-user dev today: id=1; auth lands later.
+-- `features` is a JSON blob ({"ai": true}) so we can add new flags without
+-- migrations. `anthropic_api_key` is plaintext (acceptable for local dev,
+-- documented in docs/account.md). `theme` is one of 'system' | 'light' | 'dark'.
 CREATE TABLE IF NOT EXISTS users (
-    id        INTEGER PRIMARY KEY,
-    features  TEXT NOT NULL DEFAULT '{}'
+    id                  INTEGER PRIMARY KEY,
+    features            TEXT NOT NULL DEFAULT '{}',
+    anthropic_api_key   TEXT,
+    theme               TEXT NOT NULL DEFAULT 'system'
 );
 
 -- Insights chat history. One row per conversation.

@@ -1,7 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
-import '../services/features_client.dart';
 import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
 import 'cat_icon.dart';
@@ -10,21 +9,21 @@ import 'cat_icon.dart';
 /// SnackBar summary, then [onImported] (typically a refetch trigger from
 /// AppShell).
 ///
-/// CSV is always allowed. When [features.aiImport] is true, a small toggle
-/// appears underneath that, when on, sends `parser=ai` and accepts PDFs.
+/// CSV is always allowed. When [aiEnabled] is true, a small toggle appears
+/// underneath that, when on, sends `parser=ai` and accepts PDFs.
 class Dropzone extends StatefulWidget {
   const Dropzone({
     super.key,
     required this.client,
     required this.onImported,
-    required this.features,
+    required this.aiEnabled,
     this.compact = false,
   });
 
   final bool compact;
   final TransactionsClient client;
   final Future<void> Function() onImported;
-  final FeatureFlags features;
+  final bool aiEnabled;
 
   @override
   State<Dropzone> createState() => _DropzoneState();
@@ -129,7 +128,7 @@ class _DropzoneState extends State<Dropzone> {
                 style: TextStyle(fontSize: 12, color: bt.ink4),
                 textAlign: TextAlign.center,
               ),
-              if (widget.features.aiImport) ...[
+              if (widget.aiEnabled) ...[
                 const SizedBox(height: 10),
                 _AiToggle(
                   value: _useAi,

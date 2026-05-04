@@ -167,3 +167,85 @@ def test_delete_returns_summary(client: TestClient) -> None:
     resp = client.delete(f"/transactions/{tid}")
     assert resp.status_code == 200
     assert resp.json() == {"deleted_id": tid}
+
+
+# ── /transactions/latest_date ───────────────────────────────────────────────
+
+
+def test_latest_date_returns_seeded_max(client: TestClient, seeded_db: Path) -> None:
+    resp = client.get("/transactions/latest_date")
+    assert resp.status_code == 200
+    body = resp.json()
+    # Seed runs through the end of April 2026 (per data-model.md).
+    assert body["date"] is not None
+    assert body["date"].startswith("2026-04")
+
+
+def test_latest_date_null_when_empty(client: TestClient, seeded_db: Path) -> None:
+    with db_module.connect(seeded_db) as conn:
+        conn.execute("DELETE FROM transactions")
+    resp = client.get("/transactions/latest_date")
+    assert resp.status_code == 200
+    assert resp.json() == {"date": None}
+
+
+# ── Same-merchant cascade ───────────────────────────────────────────────────
+
+
+def test_categorizing_one_row_cascades_to_same_merchant(seeded_db: Path) -> None:
+    # Create three rows with the same merchant, one already categorized
+    # to a different category. Categorizing one of the uncategorized rows
+    # should pull the others (including the previously-categorized one)
+    # onto the new category — the invariant is "same merchant → same cat".
+    cat_grocery = cat_svc.create_category(name="Test Grocery", description="x")
+    cat_fun = cat_svc.create_category(name="Test Fun", description="y")
+
+    a = svc.create_transaction(date="2026-04-01", merchant="CASCADE TEST", amount=10.0)
+    b = svc.create_transaction(date="2026-04-02", merchant="CASCADE TEST", amount=11.0)
+    c = svc.create_transaction(
+        date="2026-04-03", merchant="CASCADE TEST", amount=12.0,
+        category_id=cat_fun["id"],
+    )
+
+    svc.update_transaction(
+        a["id"], category_id=cat_grocery["id"], category_explicit=True,
+    )
+
+    fresh = {t["id"]: t for t in svc.list_transactions(merchant_query="cascade test", limit=10)}
+    assert fresh[a["id"]]["category_id"] == cat_grocery["id"]
+    assert fresh[b["id"]]["category_id"] == cat_grocery["id"]  # was NULL → cascaded
+    assert fresh[c["id"]]["category_id"] == cat_grocery["id"]  # was Fun → overridden
+
+
+def test_unassigning_does_not_cascade(seeded_db: Path) -> None:
+    cat = cat_svc.create_category(name="Test Cat", description="x")
+    a = svc.create_transaction(
+        date="2026-04-01", merchant="STAY PUT", amount=10.0, category_id=cat["id"],
+    )
+    b = svc.create_transaction(
+        date="2026-04-02", merchant="STAY PUT", amount=11.0, category_id=cat["id"],
+    )
+
+    svc.update_transaction(a["id"], category_id=None, category_explicit=True)
+
+    rows = {t["id"]: t for t in svc.list_transactions(merchant_query="stay put", limit=10)}
+    assert rows[a["id"]]["category_id"] is None
+    # Unassigning is *not* part of the invariant. b stays put.
+    assert rows[b["id"]]["category_id"] == cat["id"]
+
+
+def test_changing_only_amount_does_not_cascade(seeded_db: Path) -> None:
+    cat_a = cat_svc.create_category(name="Cat A", description="x")
+    cat_b = cat_svc.create_category(name="Cat B", description="y")
+    a = svc.create_transaction(
+        date="2026-04-01", merchant="ONLY AMT", amount=10.0, category_id=cat_a["id"],
+    )
+    b = svc.create_transaction(
+        date="2026-04-02", merchant="ONLY AMT", amount=11.0, category_id=cat_b["id"],
+    )
+    # Update a's amount only — no category change. b should not be touched.
+    svc.update_transaction(a["id"], amount=99.99)
+
+    rows = {t["id"]: t for t in svc.list_transactions(merchant_query="only amt", limit=10)}
+    assert rows[a["id"]]["category_id"] == cat_a["id"]
+    assert rows[b["id"]]["category_id"] == cat_b["id"]

@@ -182,6 +182,11 @@ def update_transaction(
 ) -> dict:
     """Partial update. `category_explicit=True` lets the caller set
     category_id to NULL (unassign); otherwise None means "no change".
+
+    If a non-null `category_id` is being set, the assignment cascades to
+    every other transaction with the same merchant (see
+    `_cascade_category_to_same_merchant`). Same-merchant rows share a
+    category by invariant.
     """
     with connect() as conn:
         existing = get_transaction(conn, transaction_id)
@@ -216,7 +221,32 @@ def update_transaction(
             f"UPDATE transactions SET {', '.join(updates)} WHERE id = ?",
             params,
         )
+
+        if category_explicit and category_id is not None:
+            _cascade_category_to_same_merchant(conn, transaction_id, category_id)
+
         return get_transaction(conn, transaction_id)  # type: ignore[return-value]
+
+
+def _cascade_category_to_same_merchant(
+    conn: sqlite3.Connection, transaction_id: int, category_id: int
+) -> int:
+    """After assigning `category_id` to `transaction_id`, mirror that
+    category to every OTHER transaction with the same merchant. Maintains
+    the invariant that same-merchant rows share a category. Returns the
+    count of other rows actually changed (rows already on the same category
+    are not counted)."""
+    cur = conn.execute(
+        """
+        UPDATE transactions
+           SET category_id = ?
+         WHERE id != ?
+           AND merchant = (SELECT merchant FROM transactions WHERE id = ?)
+           AND (category_id IS NULL OR category_id != ?)
+        """,
+        (category_id, transaction_id, transaction_id, category_id),
+    )
+    return cur.rowcount
 
 
 def delete_transaction(transaction_id: int) -> dict:
