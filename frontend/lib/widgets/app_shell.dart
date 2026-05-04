@@ -214,6 +214,7 @@ class _AppShellState extends State<AppShell> {
         onChanged: _refetchAll,
         cycleLabels: _cycleLabels,
         onCycleChange: _onCycleChange,
+        onOpenCategories: () => setState(() => _tab = 0),
       );
     }
 

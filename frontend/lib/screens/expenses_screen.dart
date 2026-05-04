@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../models/budget_category.dart';
 import '../models/budget_cycle.dart';
@@ -26,6 +27,7 @@ class ExpensesScreen extends StatefulWidget {
     required this.onChanged,
     required this.cycleLabels,
     required this.onCycleChange,
+    required this.onOpenCategories,
   });
 
   final BudgetCycle cycle;
@@ -35,6 +37,10 @@ class ExpensesScreen extends StatefulWidget {
   final Future<void> Function() onChanged;
   final List<String> cycleLabels;
   final ValueChanged<String> onCycleChange;
+
+  /// Switches the AppShell to the Categories tab. Used by the empty-state
+  /// panel's inline "Categories" link.
+  final VoidCallback onOpenCategories;
 
   @override
   State<ExpensesScreen> createState() => _ExpensesScreenState();
@@ -122,6 +128,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             client: widget.client,
             onImported: widget.onChanged,
             aiEnabled: widget.aiEnabled,
+            onOpenCategories: widget.onOpenCategories,
           );
         }
         return _MobileExpenses(
@@ -140,6 +147,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           client: widget.client,
           onImported: widget.onChanged,
           aiEnabled: widget.aiEnabled,
+          onOpenCategories: widget.onOpenCategories,
         );
       },
     );
@@ -165,6 +173,7 @@ class _MobileExpenses extends StatelessWidget {
     required this.client,
     required this.onImported,
     required this.aiEnabled,
+    required this.onOpenCategories,
   });
 
   final BudgetCycle cycle;
@@ -181,6 +190,7 @@ class _MobileExpenses extends StatelessWidget {
   final ValueChanged<String> onCycleChange;
   final TransactionsClient client;
   final Future<void> Function() onImported;
+  final VoidCallback onOpenCategories;
   final bool aiEnabled;
 
   @override
@@ -247,6 +257,7 @@ class _MobileExpenses extends StatelessWidget {
                     _NoExpensesPanel(
                       cycleLabel: cycle.label,
                       hasCategories: cycle.root.children.any((c) => !c.isUnknown),
+                      onOpenCategories: onOpenCategories,
                     ),
                   ] else ...[
                     if (unknown.isNotEmpty) ...[
@@ -268,6 +279,7 @@ class _MobileExpenses extends StatelessWidget {
                             showDivider: i > 0,
                             onAssign: onAssign,
                             onEdit: () => onEditTransaction(t),
+                            onOpenCategories: onOpenCategories,
                           )).toList(),
                         ),
                       ),
@@ -293,6 +305,7 @@ class _MobileExpenses extends StatelessWidget {
                           showDivider: i > 0,
                           onAssign: onAssign,
                           onEdit: () => onEditTransaction(t),
+                          onOpenCategories: onOpenCategories,
                         )).toList(),
                       ),
                     ),
@@ -333,6 +346,7 @@ class _DesktopExpenses extends StatefulWidget {
     required this.client,
     required this.onImported,
     required this.aiEnabled,
+    required this.onOpenCategories,
   });
 
   final BudgetCycle cycle;
@@ -344,6 +358,7 @@ class _DesktopExpenses extends StatefulWidget {
   final TransactionsClient client;
   final Future<void> Function() onImported;
   final bool aiEnabled;
+  final VoidCallback onOpenCategories;
 
   @override
   State<_DesktopExpenses> createState() => _DesktopExpensesState();
@@ -485,6 +500,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                                     showDivider: i > 0,
                                     onAssign: widget.onAssign,
                                     onEdit: () => widget.onEditTransaction(t),
+                                    onOpenCategories: widget.onOpenCategories,
                                   )).toList(),
                                 ),
                               ),
@@ -529,6 +545,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                                         cycleLabel: widget.cycle.label,
                                         hasCategories: widget.cycle.root.children
                                             .any((c) => !c.isUnknown),
+                                        onOpenCategories: widget.onOpenCategories,
                                         embedded: true,
                                       )
                                     : SingleChildScrollView(
@@ -538,6 +555,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                                             root: widget.cycle.root,
                                             onAssign: widget.onAssign,
                                             onEdit: () => widget.onEditTransaction(t),
+                                            onOpenCategories: widget.onOpenCategories,
                                             bt: bt,
                                           )).toList(),
                                         ),
@@ -568,6 +586,7 @@ class _TxnRow extends StatelessWidget {
     required this.showDivider,
     required this.onAssign,
     required this.onEdit,
+    required this.onOpenCategories,
   });
 
   final Transaction txn;
@@ -575,6 +594,7 @@ class _TxnRow extends StatelessWidget {
   final bool showDivider;
   final void Function(Transaction, String) onAssign;
   final VoidCallback onEdit;
+  final VoidCallback onOpenCategories;
 
   @override
   Widget build(BuildContext context) {
@@ -605,6 +625,7 @@ class _TxnRow extends StatelessWidget {
                 value: txn.category,
                 root: root,
                 onChange: (cat) => onAssign(txn, cat),
+                onOpenCategories: onOpenCategories,
               ),
             ],
           ),
@@ -755,6 +776,7 @@ class _TableRow extends StatelessWidget {
     required this.root,
     required this.onAssign,
     required this.onEdit,
+    required this.onOpenCategories,
     required this.bt,
   });
 
@@ -762,6 +784,7 @@ class _TableRow extends StatelessWidget {
   final BudgetCategory root;
   final void Function(Transaction, String) onAssign;
   final VoidCallback onEdit;
+  final VoidCallback onOpenCategories;
   final BudgetTheme bt;
 
   @override
@@ -789,6 +812,7 @@ class _TableRow extends StatelessWidget {
               value: txn.category,
               root: root,
               onChange: (cat) => onAssign(txn, cat),
+              onOpenCategories: onOpenCategories,
             ),
           ),
           SizedBox(
@@ -806,7 +830,7 @@ class _TableRow extends StatelessWidget {
 
 // ── Empty state ─────────────────────────────────────────────────────────────
 
-class _NoExpensesPanel extends StatelessWidget {
+class _NoExpensesPanel extends StatefulWidget {
   /// Shown when the current cycle has zero transactions. The mobile layout
   /// uses the standalone (`embedded: false`) form below the dropzone; the
   /// desktop table card uses `embedded: true` to fill the remaining space
@@ -814,22 +838,72 @@ class _NoExpensesPanel extends StatelessWidget {
   const _NoExpensesPanel({
     required this.cycleLabel,
     required this.hasCategories,
+    required this.onOpenCategories,
     this.embedded = false,
   });
 
   final String cycleLabel;
   final bool hasCategories;
+  final VoidCallback onOpenCategories;
   final bool embedded;
+
+  @override
+  State<_NoExpensesPanel> createState() => _NoExpensesPanelState();
+}
+
+class _NoExpensesPanelState extends State<_NoExpensesPanel> {
+  // The recognizer drives the inline "Categories" tap target inside the
+  // RichText body. Created in initState so it survives rebuilds and gets
+  // disposed when the widget goes away — without this, hot-reload + frequent
+  // rebuilds would leak gesture recognizers.
+  late final TapGestureRecognizer _categoriesTap = TapGestureRecognizer()
+    ..onTap = () => widget.onOpenCategories();
+
+  @override
+  void dispose() {
+    _categoriesTap.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final title = hasCategories ? 'No expenses in $cycleLabel' : 'No expenses yet';
-    final body = hasCategories
-        ? 'Drop a CSV statement above to import — or use the cycle picker to '
-          'jump to a month that has data.'
-        : 'Add a category in the Categories tab first, then drop a statement '
-          'above. The AI auto-categorizer needs somewhere to file things.';
+    final title = widget.hasCategories
+        ? 'No expenses in ${widget.cycleLabel}'
+        : 'No expenses yet';
+
+    final bodyStyle = TextStyle(fontSize: 12.5, color: bt.ink4, height: 1.5);
+    final linkStyle = bodyStyle.copyWith(
+      color: bt.ink2,
+      fontWeight: FontWeight.w600,
+    );
+
+    final body = widget.hasCategories
+        // No clickable link in the "categories exist" case — just prose.
+        ? Text(
+            'Drop a CSV statement above to import — or use the cycle picker '
+            'to jump to a month that has data.',
+            textAlign: TextAlign.center,
+            style: bodyStyle,
+          )
+        : Text.rich(
+            TextSpan(
+              style: bodyStyle,
+              children: [
+                const TextSpan(text: 'Add a category in the '),
+                TextSpan(
+                  text: 'Categories',
+                  style: linkStyle,
+                  recognizer: _categoriesTap,
+                ),
+                const TextSpan(
+                  text: ' tab first, then drop a statement above. '
+                      'The AI auto-categorizer needs somewhere to file things.',
+                ),
+              ],
+            ),
+            textAlign: TextAlign.center,
+          );
 
     final inner = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
@@ -863,17 +937,13 @@ class _NoExpensesPanel extends StatelessWidget {
           const SizedBox(height: 6),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 360),
-            child: Text(
-              body,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 12.5, color: bt.ink4, height: 1.5),
-            ),
+            child: body,
           ),
         ],
       ),
     );
 
-    if (embedded) {
+    if (widget.embedded) {
       return Center(child: inner);
     }
     return BudgetCard(child: inner);
