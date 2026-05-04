@@ -32,10 +32,7 @@ In the app:
    - **AI features** → on
    - **Anthropic API key** → paste your `sk-ant-…` key, Save
    - (optional) **Appearance** → whatever you want
-2. Open **Categories** and tap **Create category** for at least three top-level categories with descriptions — gives the auto-categorizer somewhere to file things. Suggested:
-   - **Living** — *"Day-to-day food, transport, dining out"*
-   - **Fun** — *"Entertainment, subscriptions, hobbies"*
-   - **House** — *"Rent, utilities, household"*
+2. Open **Categories**. The empty-state shows two buttons. Tap **Use defaults** to bulk-create the standard expenses tree (House + Living groups, ~12 leaves with descriptions — see [services/categories.py::DEFAULT_CATEGORY_TREE](../backend/src/budget_trace_backend/services/categories.py)). The empty-state disappears, the tree fills in. (Manual alternative: tap **+ Create category** and add categories one at a time.)
 3. Switch to **Expenses**. The empty-state panel should be visible below the dropzone.
 
 Fixtures live at [`backend/tests/fixtures/real/`](../backend/tests/fixtures/real/):
@@ -108,6 +105,8 @@ The point: real corruption surfaces as a `Failed` count — the user can see exa
 - Rows visible in April 2026.
 - Most have a category badge (auto-categorize on import).
 - Spot-check that obvious merchants (Starbucks, IKEA, restaurants) landed in plausible categories.
+
+**What to notice on a second import** (re-import the same PDF, or a different month with the same merchants): the success modal's `Categorized: N` should now match the row count via the **pre-applied** path — the categorizer recognises every merchant from the first import's history and skips Claude entirely. Confirm via the backend log: no Anthropic call when every input merchant was previously categorized. (Same effect after manually re-categorizing rows: the cascade updates existing rows immediately, and the next import respects that decision automatically.)
 
 ## Case 5 — Corrupted PDF via AI parser
 

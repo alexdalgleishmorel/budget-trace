@@ -41,6 +41,13 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _tab = 0;
 
+  // Re-tapping the Categories nav item while already on tab 0 should pop
+  // the screen's drill-down state to root. Since `_pathIds` lives inside
+  // `_CategoriesScreenState`, AppShell can't reach it directly — we send a
+  // monotonically-increasing pulse instead, and CategoriesScreen resets its
+  // path in `didUpdateWidget` whenever the value changes.
+  int _categoriesNavPulse = 0;
+
   // Cycle window. Default to the current month (latest entry in the rolling
   // 12-month window). User can switch via the cycle dropdown.
   late List<String> _cycleLabels;
@@ -160,6 +167,17 @@ class _AppShellState extends State<AppShell> {
     await Future.wait([_loadCategories(), _loadTransactions()]);
   }
 
+  /// Nav-tap handler shared by `BottomTabsBar` and `SideNav`. Tapping the
+  /// already-active Categories tab bumps the pulse counter, which the
+  /// Categories screen observes via `didUpdateWidget` to pop its drill-down
+  /// back to root.
+  void _onNav(int i) {
+    setState(() {
+      if (_tab == 0 && i == 0) _categoriesNavPulse++;
+      _tab = i;
+    });
+  }
+
   Future<void> _openAccount() async {
     final route = MaterialPageRoute<void>(
       builder: (_) => AccountScreen(
@@ -192,6 +210,7 @@ class _AppShellState extends State<AppShell> {
         root: root,
         client: _categoriesClient,
         onChanged: _loadCategories,
+        navPulse: _categoriesNavPulse,
       );
     }
 
@@ -241,7 +260,7 @@ class _AppShellState extends State<AppShell> {
               children: [
                 SideNav(
                   current: _tab,
-                  onNav: (i) => setState(() => _tab = i),
+                  onNav: _onNav,
                   cycleLabel: _cycleLabel,
                   cycleLabels: _cycleLabels,
                   onCycleChange: _onCycleChange,
@@ -269,7 +288,7 @@ class _AppShellState extends State<AppShell> {
               ),
               BottomTabsBar(
                 current: _tab,
-                onNav: (i) => setState(() => _tab = i),
+                onNav: _onNav,
                 showInsights: showInsights,
               ),
             ],

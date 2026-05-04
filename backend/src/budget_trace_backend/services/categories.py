@@ -324,3 +324,71 @@ def delete_category_by_path(path: str) -> dict:
     if cid is None:
         raise NotFound(f"category path {path!r} does not resolve")
     return delete_category(cid)
+
+
+# ── Default tree (shipped via POST /categories/seed_defaults) ────────────────
+
+
+# Expenses-only default tree offered to first-time users from the empty
+# Categories panel. Independent of seed.py::CATEGORY_TREE (which keeps a
+# Savings group for backward-compat in tests). Budget Trace tracks spend
+# only — savings transfers, payments to credit cards, and refunds are
+# already skipped at parse time, so a Savings group here would be misleading.
+DEFAULT_CATEGORY_TREE: list[dict] = [
+    {
+        "name": "House",
+        "description": "Costs of keeping a roof over your head — housing payments and home services.",
+        "children": [
+            {
+                "name": "Rent",
+                "description": "Recurring monthly payment for the home itself.",
+                "children": [
+                    {"name": "Mortgage",   "description": "Bank or lender mortgage payment for the primary residence."},
+                    {"name": "Strata Fee", "description": "Condo, HOA, or strata fees for shared building maintenance."},
+                ],
+            },
+            {"name": "Utilities", "description": "Electricity, gas, water, and other recurring home utilities."},
+            {"name": "Internet",  "description": "Home internet service and mobile phone bills."},
+        ],
+    },
+    {
+        "name": "Living",
+        "description": "Day-to-day spending — transport, food, and everyday personal expenses.",
+        "children": [
+            {"name": "Car Insurance", "description": "Auto insurance premiums."},
+            {"name": "Gas",           "description": "Fuel for personal vehicles (gas stations, EV charging)."},
+            {"name": "Grocery",       "description": "Supermarket and grocery-store food shopping for the household."},
+            {"name": "Dining Out",    "description": "Restaurants, takeout, delivery, coffee shops, cafes."},
+            {"name": "Subscriptions", "description": "Recurring software / streaming / membership charges (Netflix, Spotify, gym, etc.)."},
+            {"name": "Fun",           "description": "Entertainment outside of food and subscriptions — concerts, shows, hobbies, going out."},
+            {"name": "Shopping",      "description": "Discretionary retail purchases — clothes, electronics, household goods."},
+            {"name": "Travel",        "description": "Trip expenses — flights, hotels, transit, vacation spending."},
+        ],
+    },
+]
+
+
+def seed_default_tree(conn: sqlite3.Connection) -> list[dict]:
+    """Walk DEFAULT_CATEGORY_TREE and create every node under the existing
+    Budget root. Caller is expected to have verified the tree is empty
+    (see routes/categories.py::seed_defaults). Returns the freshly-created
+    categories as a flat list, in the same shape as `list_categories_with_ids`."""
+    root_id = get_root_id(conn)
+    created_ids: list[int] = []
+
+    def walk(nodes: list[dict], parent_id: int) -> None:
+        for n in nodes:
+            cur = conn.execute(
+                "INSERT INTO categories (name, description, parent_id, is_unknown) "
+                "VALUES (?, ?, ?, 0)",
+                (n["name"], n.get("description"), parent_id),
+            )
+            new_id = cur.lastrowid
+            created_ids.append(new_id)
+            children = n.get("children") or []
+            if children:
+                walk(children, new_id)
+
+    walk(DEFAULT_CATEGORY_TREE, root_id)
+
+    return [get_category(conn, cid) for cid in created_ids]  # type: ignore[misc]

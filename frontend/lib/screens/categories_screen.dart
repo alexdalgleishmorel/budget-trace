@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../models/budget_category.dart';
+import '../services/api_base.dart';
 import '../services/categories_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/budget_card.dart';
@@ -12,6 +13,7 @@ class CategoriesScreen extends StatefulWidget {
     required this.root,
     required this.client,
     required this.onChanged,
+    required this.navPulse,
   });
 
   /// Snapshot of the category tree owned and re-fetched by AppShell. After any
@@ -24,6 +26,12 @@ class CategoriesScreen extends StatefulWidget {
   /// Refetch trigger. Returns when AppShell has the new tree applied.
   final Future<void> Function() onChanged;
 
+  /// Monotonically-increasing counter from AppShell. Bumped every time the
+  /// user re-taps the Categories nav item while already on the Categories
+  /// tab — `didUpdateWidget` observes the change and pops the drill-down
+  /// to root.
+  final int navPulse;
+
   @override
   State<CategoriesScreen> createState() => _CategoriesScreenState();
 }
@@ -33,6 +41,20 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
   /// BudgetCategory objects themselves get replaced when AppShell re-resolves
   /// from the backend).
   final List<int> _pathIds = [];
+
+  /// True while POST /categories/seed_defaults is in flight. Disables both
+  /// empty-state buttons + draws a spinner inside the secondary one.
+  bool _seedingDefaults = false;
+
+  @override
+  void didUpdateWidget(CategoriesScreen old) {
+    super.didUpdateWidget(old);
+    // Re-tapping the Categories nav item while already on this tab pops
+    // the drill-down to root. AppShell signals this by bumping `navPulse`.
+    if (old.navPulse != widget.navPulse && _pathIds.isNotEmpty) {
+      setState(() => _pathIds.clear());
+    }
+  }
 
   /// Resolve [_pathIds] against the current tree. Stops early if any id no
   /// longer exists (e.g. the user just deleted that node).
@@ -75,6 +97,29 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
   }
 
   // ── Mutations ──────────────────────────────────────────────────────────────
+
+  Future<void> _useDefaults() async {
+    if (_seedingDefaults) return;
+    setState(() => _seedingDefaults = true);
+    try {
+      await widget.client.seedDefaults();
+      await widget.onChanged();
+    } on ApiException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not create defaults: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _seedingDefaults = false);
+    }
+  }
 
   Future<void> _add() async {
     final parentNow = _current;
@@ -192,7 +237,11 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             child: Padding(
               padding: const EdgeInsets.fromLTRB(18, 6, 18, 18),
               child: showFirstRunEmpty
-                  ? _FirstRunEmpty(onCreate: _add)
+                  ? _FirstRunEmpty(
+                      onCreate: _add,
+                      onUseDefaults: _useDefaults,
+                      seedingDefaults: _seedingDefaults,
+                    )
                   : showLeafView
                       ? _LeafView(node: _current, onEdit: () => _edit(_current))
                       : _FillGrid(
@@ -255,7 +304,11 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
           child: Padding(
             padding: const EdgeInsets.fromLTRB(28, 24, 28, 28),
             child: showFirstRunEmpty
-                ? _FirstRunEmpty(onCreate: _add)
+                ? _FirstRunEmpty(
+                      onCreate: _add,
+                      onUseDefaults: _useDefaults,
+                      seedingDefaults: _seedingDefaults,
+                    )
                 : showLeafView
                     ? _LeafView(node: _current, onEdit: () => _edit(_current))
                     : _FillGrid(
@@ -274,16 +327,26 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
 // ── First-run empty state ───────────────────────────────────────────────────
 
 class _FirstRunEmpty extends StatelessWidget {
-  const _FirstRunEmpty({required this.onCreate});
+  const _FirstRunEmpty({
+    required this.onCreate,
+    required this.onUseDefaults,
+    required this.seedingDefaults,
+  });
 
   final VoidCallback onCreate;
+  final VoidCallback onUseDefaults;
+
+  /// True while the seed_defaults round-trip is in flight. Disables both
+  /// buttons and renders a spinner inside the secondary "Use defaults"
+  /// button so the user has feedback even on a slower connection.
+  final bool seedingDefaults;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: const BoxConstraints(maxWidth: 460),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
@@ -313,36 +376,142 @@ class _FirstRunEmpty extends StatelessWidget {
             const SizedBox(height: 8),
             Text(
               'Categories are how Budget Trace organises your spending — and '
-              'how the AI knows where to file things. Create your first one '
-              'to get started.',
+              'how the AI knows where to file things. Create your first one, '
+              'or start with a sensible default set.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 13.5, color: bt.ink3, height: 1.5),
             ),
             const SizedBox(height: 22),
-            GestureDetector(
-              onTap: onCreate,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-                decoration: BoxDecoration(
-                  color: bt.ink,
-                  borderRadius: const BorderRadius.all(Radius.circular(10)),
-                ),
-                child: Row(
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final stack = constraints.maxWidth < 320;
+                final primary = _PrimaryButton(
+                  icon: 'plus',
+                  label: 'Create category',
+                  onTap: seedingDefaults ? null : onCreate,
+                  bt: bt,
+                );
+                final secondary = _SecondaryButton(
+                  label: 'Use defaults',
+                  onTap: seedingDefaults ? null : onUseDefaults,
+                  busy: seedingDefaults,
+                  bt: bt,
+                );
+                if (stack) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      primary,
+                      const SizedBox(height: 8),
+                      secondary,
+                    ],
+                  );
+                }
+                return Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    BudgetIcons.build('plus',
-                        size: 14, strokeWidth: 2, color: bt.bg),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Create category',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: bt.bg,
-                      ),
-                    ),
+                    primary,
+                    const SizedBox(width: 10),
+                    secondary,
                   ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PrimaryButton extends StatelessWidget {
+  const _PrimaryButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    required this.bt,
+  });
+  final String icon;
+  final String label;
+  final VoidCallback? onTap;
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+        decoration: BoxDecoration(
+          color: disabled ? bt.ink4 : bt.ink,
+          borderRadius: const BorderRadius.all(Radius.circular(10)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            BudgetIcons.build(icon, size: 14, strokeWidth: 2, color: bt.bg),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: bt.bg,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SecondaryButton extends StatelessWidget {
+  const _SecondaryButton({
+    required this.label,
+    required this.onTap,
+    required this.busy,
+    required this.bt,
+  });
+  final String label;
+  final VoidCallback? onTap;
+  final bool busy;
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    final disabled = onTap == null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
+        decoration: BoxDecoration(
+          color: bt.surface,
+          border: Border.all(color: bt.ruleStrong),
+          borderRadius: const BorderRadius.all(Radius.circular(10)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (busy) ...[
+              SizedBox(
+                width: 12, height: 12,
+                child: CircularProgressIndicator(
+                  strokeWidth: 1.5,
+                  valueColor: AlwaysStoppedAnimation(bt.ink3),
                 ),
+              ),
+              const SizedBox(width: 8),
+            ],
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: disabled ? bt.ink4 : bt.ink2,
               ),
             ),
           ],

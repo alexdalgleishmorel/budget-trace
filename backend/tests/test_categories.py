@@ -166,3 +166,42 @@ def test_delete_root_returns_409(client: TestClient) -> None:
         root_id = svc.get_root_id(conn)
     resp = client.delete(f"/categories/{root_id}")
     assert resp.status_code == 409
+
+
+# ── POST /categories/seed_defaults ──────────────────────────────────────────
+
+
+def test_seed_defaults_on_empty_tree(tmp_path: Path, monkeypatch) -> None:
+    """Fresh DB with only the Budget root + default user — seed creates the
+    expenses-only default tree."""
+    target = tmp_path / "fresh.db"
+    monkeypatch.setenv("BUDGET_TRACE_DB", str(target))
+    from budget_trace_backend.main import app as fresh_app
+    with TestClient(fresh_app) as c:
+        # The lifespan has just initialized: schema + Budget root + default user.
+        before = c.get("/categories").json()
+        assert before == []  # Budget root is filtered out of the AI-facing path list
+
+        resp = c.post("/categories/seed_defaults")
+        assert resp.status_code == 200
+        created = resp.json()
+
+        paths = {row["path"] for row in created}
+        # Spot-check structural expectations
+        assert "House" in paths
+        assert "House / Rent / Mortgage" in paths
+        assert "House / Rent / Strata Fee" in paths
+        assert "Living / Grocery" in paths
+        assert "Living / Dining Out" in paths
+        assert "Living / Subscriptions" in paths
+        assert "Living / Travel" in paths
+        # Expenses-only — no Savings group.
+        assert not any(p.startswith("Savings") for p in paths)
+
+
+def test_seed_defaults_refuses_when_tree_not_empty(client: TestClient) -> None:
+    # The shared `client` fixture uses the seeded DB which already has the
+    # full mock category tree.
+    resp = client.post("/categories/seed_defaults")
+    assert resp.status_code == 409
+    assert resp.json()["detail"]["code"] == "categories_exist"

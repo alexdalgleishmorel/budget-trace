@@ -72,6 +72,26 @@ def create(payload: CategoryCreate) -> CategoryOut:
         raise _err(e)
 
 
+@router.post("/seed_defaults", response_model=list[CategoryOut])
+def seed_defaults() -> list[CategoryOut]:
+    """One-tap shortcut for the empty-state panel: create the
+    `DEFAULT_CATEGORY_TREE` under the existing Budget root. Refuses (409) if
+    the tree already has any non-root categories — the seed is a strictly
+    "from scratch" affordance, not a merge."""
+    with connect() as conn:
+        existing = conn.execute(
+            "SELECT 1 FROM categories WHERE parent_id IS NOT NULL LIMIT 1"
+        ).fetchone()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail={"code": "categories_exist",
+                        "message": "Default categories can only be added when the tree is empty."},
+            )
+        rows = svc.seed_default_tree(conn)
+    return [CategoryOut(**r) for r in rows]
+
+
 @router.get("/{category_id}", response_model=CategoryOut)
 def get_one(category_id: int) -> CategoryOut:
     with connect() as conn:

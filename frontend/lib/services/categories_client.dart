@@ -91,5 +91,16 @@ class CategoriesClient {
     decodeOrThrow(resp);
   }
 
+  /// Bulk-create the backend's `DEFAULT_CATEGORY_TREE` under the existing
+  /// Budget root. The backend refuses with 409 (`categories_exist`) if any
+  /// non-root category already exists — strictly a "from scratch" affordance.
+  Future<List<CategoryDto>> seedDefaults() async {
+    final resp = await _client.post(
+      Uri.parse('$apiBaseUrl/categories/seed_defaults'),
+    );
+    final body = decodeOrThrow(resp) as List;
+    return body.map((j) => CategoryDto.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
   void dispose() => _client.close();
 }

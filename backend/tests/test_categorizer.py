@@ -15,6 +15,7 @@ from budget_trace_backend.importers import categorizer
 from budget_trace_backend.importers.common import ImportedRow, insert_rows
 from budget_trace_backend.main import app
 from budget_trace_backend.services import anthropic_client
+from budget_trace_backend.services import categories as cat_svc
 from budget_trace_backend.services import transactions as svc
 
 
@@ -110,7 +111,10 @@ def test_categorizer_empty_ids_skips_ai_call(seeded_db: Path, monkeypatch) -> No
 
     result = categorizer.categorize_rows([])
 
-    assert result == {"attempted": 0, "categorized": 0, "skipped_no_match": 0, "ai_usage": None}
+    assert result == {
+        "attempted": 0, "categorized": 0, "pre_applied": 0,
+        "skipped_no_match": 0, "ai_usage": None,
+    }
 
 
 def test_categorizer_missing_key_degrades_gracefully(seeded_db: Path, monkeypatch) -> None:
@@ -218,3 +222,115 @@ def test_categorizer_first_assignment_wins_within_batch(seeded_db: Path, monkeyp
     # First wins: both end up Grocery, not Gas.
     assert rows[a["id"]]["category_path"] == "Living / Grocery"
     assert rows[b["id"]]["category_path"] == "Living / Grocery"
+
+
+def test_categorizer_pre_applies_known_merchants_skipping_ai(
+    seeded_db: Path, monkeypatch
+) -> None:
+    """When every input merchant is already in history, Claude must NOT be
+    called — the categorizer takes the pre-apply fast path."""
+    cat = cat_svc.create_category(name="My Cafes", description="Coffee")
+    # Seed history: one categorized BEAN MACHINE row.
+    svc.create_transaction(
+        date="2026-04-10", merchant="BEAN MACHINE", amount=4.50, category_id=cat["id"],
+    )
+
+    # Now insert a fresh BEAN MACHINE row (uncategorized) and ask the
+    # categorizer to handle it.
+    rows = [ImportedRow(date="2026-04-15", merchant="BEAN MACHINE", amount=5.25)]
+    with db_module.connect(seeded_db) as conn:
+        result = insert_rows(conn, rows)
+    new_ids = result.inserted_ids
+    assert len(new_ids) == 1
+
+    def boom():
+        raise AssertionError(
+            "Claude must not be called when every input merchant is already known"
+        )
+    monkeypatch.setattr(categorizer, "get_client", boom)
+
+    out = categorizer.categorize_rows(new_ids)
+    assert out["categorized"] == 1
+    assert out["pre_applied"] == 1
+    assert out["skipped_no_match"] == 0
+    assert out["ai_usage"] is None  # never called
+
+    # Verify the new row got the historical category.
+    fresh = next(t for t in svc.list_transactions(merchant_query="bean machine", limit=10)
+                 if t["id"] == new_ids[0])
+    assert fresh["category_id"] == cat["id"]
+
+
+def test_categorizer_history_uses_most_recent_assignment(
+    seeded_db: Path, monkeypatch
+) -> None:
+    """When a merchant has multiple historical assignments, the most-recent
+    one wins (mirrors the user's latest decision)."""
+    cat_a = cat_svc.create_category(name="Cat A", description="x")
+    cat_b = cat_svc.create_category(name="Cat B", description="y")
+    # First, three rows in cat_a (lower ids) ...
+    for i in range(3):
+        svc.create_transaction(
+            date=f"2026-04-{10+i:02d}", merchant="SPLIT MERCHANT",
+            amount=10.00, category_id=cat_a["id"],
+        )
+    # ... then ONE more recent row in cat_b (highest id, wins).
+    svc.create_transaction(
+        date="2026-04-20", merchant="SPLIT MERCHANT", amount=11.00, category_id=cat_b["id"],
+    )
+
+    # Import a new SPLIT MERCHANT row.
+    rows = [ImportedRow(date="2026-04-25", merchant="SPLIT MERCHANT", amount=12.00)]
+    with db_module.connect(seeded_db) as conn:
+        new_ids = insert_rows(conn, rows).inserted_ids
+
+    monkeypatch.setattr(categorizer, "get_client",
+                        lambda: (_ for _ in ()).throw(AssertionError("no AI please")))
+
+    out = categorizer.categorize_rows(new_ids)
+    assert out["pre_applied"] == 1
+
+    fresh = next(t for t in svc.list_transactions(merchant_query="split merchant", limit=10)
+                 if t["id"] == new_ids[0])
+    # Most-recent assignment was cat_b — that wins.
+    assert fresh["category_id"] == cat_b["id"]
+
+
+def test_categorizer_mixes_pre_applied_and_ai_assignments(
+    seeded_db: Path, monkeypatch
+) -> None:
+    """Half-known, half-unknown merchants in one batch: pre-apply for the
+    known half, Claude for the rest. Counts are accurate."""
+    cat = cat_svc.create_category(name="From History", description="x")
+    # Seed history for one merchant.
+    svc.create_transaction(
+        date="2026-03-15", merchant="KNOWN MERCH", amount=20.00, category_id=cat["id"],
+    )
+
+    # Import 4 rows: 2 KNOWN (will pre-apply), 2 NEW (will go to Claude).
+    new_rows = [
+        ImportedRow(date="2026-04-01", merchant="KNOWN MERCH", amount=10.00),
+        ImportedRow(date="2026-04-02", merchant="KNOWN MERCH", amount=11.00),
+        ImportedRow(date="2026-04-03", merchant="NEW MERCH A", amount=12.00),
+        ImportedRow(date="2026-04-04", merchant="NEW MERCH B", amount=13.00),
+    ]
+    with db_module.connect(seeded_db) as conn:
+        new_ids = insert_rows(conn, new_rows).inserted_ids
+    assert len(new_ids) == 4
+
+    # Stub the AI to assign both new merchants.
+    new_a_id = next(i for i in new_ids
+                    if next(t for t in svc.list_transactions(limit=500) if t["id"] == i)["merchant"] == "NEW MERCH A")
+    new_b_id = next(i for i in new_ids
+                    if next(t for t in svc.list_transactions(limit=500) if t["id"] == i)["merchant"] == "NEW MERCH B")
+    fake = _fake_client_returning([
+        {"transaction_id": new_a_id, "category_path": "Living / Grocery"},
+        {"transaction_id": new_b_id, "category_path": "Living / Gas"},
+    ])
+    monkeypatch.setattr(categorizer, "get_client", lambda: fake)
+
+    out = categorizer.categorize_rows(new_ids)
+    assert out["categorized"] == 4
+    assert out["pre_applied"] == 2  # the 2 KNOWN rows
+    assert out["skipped_no_match"] == 0
+    assert out["ai_usage"] is not None  # Claude WAS called for the 2 unknowns
