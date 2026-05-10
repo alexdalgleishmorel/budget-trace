@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
+import 'ai_promo.dart';
 import 'ai_spend_chip.dart';
 import 'cat_icon.dart';
 import 'import_progress_modal.dart';
@@ -12,12 +13,11 @@ import 'import_progress_modal.dart';
 /// success / error panels. [onImported] fires after the modal closes so
 /// AppShell refetches.
 ///
-/// CSV is always allowed. When [aiEnabled] is true, a small toggle appears
-/// underneath that, when on, sends `parser=ai` and accepts PDFs. The
-/// running cumulative AI spend is rendered as an [AiSpendChip] above the
-/// dropzone — this is the only AI surface besides the Insights chat, so
-/// it's where the global spend metric lives now (was previously in the
-/// side nav).
+/// CSV is always accepted (no AI needed, no tokens billed). When [aiEnabled]
+/// is true the picker also accepts PDF + image formats and the upload is
+/// routed to the AI parser automatically based on the file extension. When
+/// AI is off the dropzone renders a green [AiPromo] above it inviting the
+/// user to turn AI on for broader file support.
 class Dropzone extends StatefulWidget {
   const Dropzone({
     super.key,
@@ -25,7 +25,7 @@ class Dropzone extends StatefulWidget {
     required this.onImported,
     required this.aiEnabled,
     required this.aiSpentUsd,
-    required this.aiSpentEstimated,
+    this.onOpenAccount,
     this.compact = false,
   });
 
@@ -34,18 +34,25 @@ class Dropzone extends StatefulWidget {
   final Future<void> Function() onImported;
   final bool aiEnabled;
   final double aiSpentUsd;
-  final bool aiSpentEstimated;
+
+  /// Pushes the Account screen — used by the [AiPromo] CTA when AI is off.
+  final VoidCallback? onOpenAccount;
 
   @override
   State<Dropzone> createState() => _DropzoneState();
 }
 
+// File extensions allowed when AI is on. CSV stays in the list because the
+// CSV path is free; the picker accepts everything and we pick the parser
+// from the extension at upload time.
+const _kAiExtensions = ['csv', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'gif'];
+const _kCsvOnlyExtensions = ['csv'];
+
 class _DropzoneState extends State<Dropzone> {
   bool _hovered = false;
-  bool _useAi = false;
 
   Future<void> _pickAndUpload() async {
-    final extensions = _useAi ? ['csv', 'pdf'] : ['csv'];
+    final extensions = widget.aiEnabled ? _kAiExtensions : _kCsvOnlyExtensions;
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: extensions,
@@ -62,12 +69,16 @@ class _DropzoneState extends State<Dropzone> {
       return;
     }
 
-    final parser = _useAi ? 'ai' : 'csv';
+    // When AI is on, every upload goes through the AI parser — no extension
+    // routing. When AI is off, only CSV is allowed (the picker enforces it)
+    // and the free CSV path runs.
+    final parser = widget.aiEnabled ? 'ai' : 'csv';
+
     if (!mounted) return;
     await ImportProgressModal.show(
       context: context,
       filename: file.name,
-      aiEnabled: _useAi,
+      aiEnabled: widget.aiEnabled,
       upload: () => widget.client.import(
         bytes: bytes,
         filename: file.name,
@@ -80,22 +91,26 @@ class _DropzoneState extends State<Dropzone> {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final showChip = widget.aiEnabled || widget.aiSpentUsd > 0;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        if (showChip) ...[
-          Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Row(
-              children: [
-                AiSpendChip.detailed(
-                  amountUsd: widget.aiSpentUsd,
-                  isEstimate: widget.aiSpentEstimated,
-                  label: 'spent on Anthropic',
-                ),
-              ],
+        if (widget.aiEnabled) ...[
+          if (widget.aiSpentUsd > 0)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Row(
+                children: [
+                  AiSpendChip.detailed(
+                    amountUsd: widget.aiSpentUsd,
+                    label: 'spent on AI',
+                  ),
+                ],
+              ),
             ),
+        ] else ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: AiPromo.upload(onOpenAccount: widget.onOpenAccount),
           ),
         ],
         MouseRegion(
@@ -104,121 +119,55 @@ class _DropzoneState extends State<Dropzone> {
           child: GestureDetector(
             onTap: _pickAndUpload,
             child: AnimatedContainer(
-          duration: const Duration(milliseconds: 200),
-          width: double.infinity,
-          padding: EdgeInsets.symmetric(
-            horizontal: widget.compact ? 16 : 20,
-            vertical: widget.compact ? 20 : 28,
-          ),
-          decoration: BoxDecoration(
-            color: bt.surface2,
-            borderRadius: const BorderRadius.all(Radius.circular(16)),
-            border: Border.all(
-              color: _hovered ? bt.ink3 : bt.ruleStrong,
-              width: 1.5,
-              style: BorderStyle.solid,
-            ),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 44, height: 44,
-                decoration: BoxDecoration(
-                  color: bt.surface,
-                  borderRadius: const BorderRadius.all(Radius.circular(14)),
-                  border: Border.all(color: bt.ruleStrong),
-                ),
-                child: Center(
-                  child: BudgetIcons.build('upload',
-                      size: 20, strokeWidth: 1.8, color: bt.ink2),
+              duration: const Duration(milliseconds: 200),
+              width: double.infinity,
+              padding: EdgeInsets.symmetric(
+                horizontal: widget.compact ? 16 : 20,
+                vertical: widget.compact ? 20 : 28,
+              ),
+              decoration: BoxDecoration(
+                color: bt.surface2,
+                borderRadius: const BorderRadius.all(Radius.circular(16)),
+                border: Border.all(
+                  color: _hovered ? bt.ink3 : bt.ruleStrong,
+                  width: 1.5,
+                  style: BorderStyle.solid,
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                'Drop a statement',
-                style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: bt.ink),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 44, height: 44,
+                    decoration: BoxDecoration(
+                      color: bt.surface,
+                      borderRadius: const BorderRadius.all(Radius.circular(14)),
+                      border: Border.all(color: bt.ruleStrong),
+                    ),
+                    child: Center(
+                      child: BudgetIcons.build('upload',
+                          size: 20, strokeWidth: 1.8, color: bt.ink2),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Drop a statement',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: bt.ink),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    widget.aiEnabled
+                        ? 'CSV, PDF, or image — parsed by AI'
+                        : 'CSV — date, merchant, amount columns',
+                    style: TextStyle(fontSize: 12, color: bt.ink4),
+                    textAlign: TextAlign.center,
+                  ),
+                ],
               ),
-              const SizedBox(height: 2),
-              Text(
-                _useAi ? 'CSV or PDF — parsed by AI' : 'CSV — date, merchant, amount columns',
-                style: TextStyle(fontSize: 12, color: bt.ink4),
-                textAlign: TextAlign.center,
-              ),
-              if (widget.aiEnabled) ...[
-                const SizedBox(height: 10),
-                _AiToggle(
-                  value: _useAi,
-                  onChanged: (v) => setState(() => _useAi = v),
-                  bt: bt,
-                ),
-              ],
-            ],
-          ),
             ),
           ),
         ),
       ],
-    );
-  }
-}
-
-class _AiToggle extends StatelessWidget {
-  const _AiToggle({required this.value, required this.onChanged, required this.bt});
-  final bool value;
-  final ValueChanged<bool> onChanged;
-  final BudgetTheme bt;
-
-  @override
-  Widget build(BuildContext context) {
-    // Stop the parent GestureDetector from intercepting the tap.
-    return GestureDetector(
-      onTap: () => onChanged(!value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: value ? bt.ink : bt.surface,
-          border: Border.all(color: bt.ruleStrong),
-          borderRadius: const BorderRadius.all(Radius.circular(999)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            BudgetIcons.build(
-              value ? 'check' : 'sparkle',
-              size: 12,
-              strokeWidth: 2,
-              color: value ? bt.bg : bt.ink3,
-            ),
-            const SizedBox(width: 6),
-            Text(
-              'Use AI parsing',
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w500,
-                color: value ? bt.bg : bt.ink2,
-              ),
-            ),
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-              decoration: BoxDecoration(
-                color: value ? bt.bg.withValues(alpha: 0.18) : bt.warnBg,
-                borderRadius: const BorderRadius.all(Radius.circular(4)),
-              ),
-              child: Text(
-                'PREMIUM',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 0.08 * 9,
-                  color: value ? bt.bg : bt.warn,
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

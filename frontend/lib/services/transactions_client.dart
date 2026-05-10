@@ -127,8 +127,8 @@ class TransactionsClient {
   /// Sets a Content-Type per file extension so the backend can identify the
   /// payload. The default `MultipartFile.fromBytes` content-type is
   /// `application/octet-stream`, which the AI parser refuses to forward to
-  /// Claude — sending unidentified bytes to the model has cost users real
-  /// money in the past.
+  /// the model — sending unidentified bytes has cost users real money in
+  /// the past.
   Future<ImportResult> import({
     required List<int> bytes,
     required String filename,

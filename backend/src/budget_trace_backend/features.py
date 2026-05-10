@@ -1,10 +1,14 @@
-"""Per-user settings: feature flags, theme, API key.
+"""Per-user settings: feature flags, theme, AI provider keys, selected model.
 
 Today: single hardcoded user (id=1). The `users` table holds:
 - `features` — JSON blob of flags. Currently just `{"ai": bool}`.
 - `theme`    — 'system' | 'light' | 'dark'.
-- `anthropic_api_key` — plaintext, optional. Falls back to the
-  `ANTHROPIC_API_KEY` env var when unset (see services/anthropic_client.py).
+- `selected_model` — model id from services/ai/registry.py; resolves the
+  provider whose key is used for every AI call (chat, parser, categorizer).
+
+Per-provider API keys live in `ai_provider_keys` — one row per provider
+(`anthropic`, `openai`, `google`). Falls back to the provider's env var
+(see services/ai/registry.py::ProviderInfo.env_var) when unset.
 
 The `BUDGET_TRACE_FEATURES` env var (comma-separated flag names) overrides the
 DB for local dev / tests — handy for forcing `ai` on without writing to the DB.
@@ -47,9 +51,8 @@ def _env_overrides() -> set[str]:
 def ensure_default_user(conn) -> None:
     """Idempotent — call from seed and at FastAPI startup."""
     conn.execute(
-        "INSERT OR IGNORE INTO users "
-        "(id, features, anthropic_api_key, theme, anthropic_admin_api_key, anthropic_model) "
-        "VALUES (?, '{}', NULL, 'system', NULL, NULL)",
+        "INSERT OR IGNORE INTO users (id, features, theme, selected_model) "
+        "VALUES (?, '{}', 'system', NULL)",
         (DEFAULT_USER_ID,),
     )
 
@@ -70,11 +73,7 @@ def get_flags(user_id: int = DEFAULT_USER_ID) -> dict[str, bool]:
 
 
 def set_flag(name: str, value: bool, user_id: int = DEFAULT_USER_ID) -> dict[str, bool]:
-    """Update one flag in the DB. Env overrides still apply on read.
-
-    Useful for tests and the `BUDGET_TRACE_FEATURES`-style dev-loop. The
-    public PATCH /me route uses `update_me(features={...})`.
-    """
+    """Update one flag in the DB. Env overrides still apply on read."""
     if name not in KNOWN_FLAGS:
         raise ValueError(f"unknown feature flag: {name}")
     with connect() as conn:
@@ -93,21 +92,22 @@ def set_flag(name: str, value: bool, user_id: int = DEFAULT_USER_ID) -> dict[str
 
 def get_me(user_id: int = DEFAULT_USER_ID) -> dict:
     """Full user row, with env-override applied to flags. Used by GET /me and
-    by services/anthropic_client.py to read the API key + model."""
+    by services/ai/client.py to read the API keys + selected model."""
     with connect() as conn:
         ensure_default_user(conn)
         row = conn.execute(
-            "SELECT features, anthropic_api_key, theme, "
-            "       anthropic_admin_api_key, anthropic_model "
-            "  FROM users WHERE id = ?",
+            "SELECT features, theme, selected_model FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
+        key_rows = conn.execute(
+            "SELECT provider, api_key FROM ai_provider_keys WHERE user_id = ?",
+            (user_id,),
+        ).fetchall()
     return {
         "features": get_flags(user_id),
         "theme": row["theme"],
-        "anthropic_api_key": row["anthropic_api_key"],
-        "anthropic_admin_api_key": row["anthropic_admin_api_key"],
-        "anthropic_model": row["anthropic_model"],
+        "selected_model": row["selected_model"],
+        "provider_keys": {r["provider"]: r["api_key"] for r in key_rows},
     }
 
 
@@ -116,21 +116,20 @@ def update_me(
     *,
     features: Any = UNSET,
     theme: Any = UNSET,
-    anthropic_api_key: Any = UNSET,
-    anthropic_admin_api_key: Any = UNSET,
-    anthropic_model: Any = UNSET,
+    selected_model: Any = UNSET,
+    provider_keys: Any = UNSET,
 ) -> dict:
-    """Partial update of the user row. Pass `UNSET` (or omit) to leave a
-    field alone; pass `None` to clear key/model fields.
+    """Partial update of the user row.
 
-    `features` is a partial dict like `{"ai": True}` — merged into the
-    existing JSON blob. Unknown flag keys raise ValueError.
-
-    `anthropic_model` must be in `services.ai_usage.MODEL_PRICES` (or None).
+    - `features`: partial dict like `{"ai": True}`, merged into the JSON blob.
+    - `theme`: 'system' | 'light' | 'dark'.
+    - `selected_model`: model id from MODEL_REGISTRY, or None to clear.
+    - `provider_keys`: partial dict `{provider_id: api_key | None}`. None
+       clears that provider's row; a string upserts it. Unknown provider
+       ids raise ValueError. Empty strings are rejected at the route layer.
     """
-    # Local import to avoid a circular dep — ai_usage imports db, db imports
-    # features through bootstrap_db.
-    from .services.ai_usage import is_known_model
+    # Local imports to avoid circular deps.
+    from .services.ai.registry import is_known_model, is_known_provider
 
     with connect() as conn:
         ensure_default_user(conn)
@@ -158,25 +157,36 @@ def update_me(
                 "UPDATE users SET theme = ? WHERE id = ?", (theme, user_id),
             )
 
-        if anthropic_api_key is not UNSET:
-            # None clears, str sets. Empty string is rejected at the route layer.
+        if selected_model is not UNSET:
+            if selected_model is not None and not is_known_model(selected_model):
+                raise ValueError(f"unsupported model: {selected_model!r}")
             conn.execute(
-                "UPDATE users SET anthropic_api_key = ? WHERE id = ?",
-                (anthropic_api_key, user_id),
+                "UPDATE users SET selected_model = ? WHERE id = ?",
+                (selected_model, user_id),
             )
 
-        if anthropic_admin_api_key is not UNSET:
-            conn.execute(
-                "UPDATE users SET anthropic_admin_api_key = ? WHERE id = ?",
-                (anthropic_admin_api_key, user_id),
-            )
-
-        if anthropic_model is not UNSET:
-            if anthropic_model is not None and not is_known_model(anthropic_model):
-                raise ValueError(f"unsupported model: {anthropic_model!r}")
-            conn.execute(
-                "UPDATE users SET anthropic_model = ? WHERE id = ?",
-                (anthropic_model, user_id),
-            )
+        if provider_keys is not UNSET:
+            if not isinstance(provider_keys, dict):
+                raise ValueError("provider_keys must be a dict")
+            for provider_id, value in provider_keys.items():
+                if not is_known_provider(provider_id):
+                    raise ValueError(f"unknown provider: {provider_id!r}")
+                if value is None:
+                    conn.execute(
+                        "DELETE FROM ai_provider_keys "
+                        "WHERE user_id = ? AND provider = ?",
+                        (user_id, provider_id),
+                    )
+                elif isinstance(value, str) and value:
+                    conn.execute(
+                        "INSERT INTO ai_provider_keys (user_id, provider, api_key) "
+                        "VALUES (?, ?, ?) "
+                        "ON CONFLICT(user_id, provider) DO UPDATE SET api_key = excluded.api_key",
+                        (user_id, provider_id, value),
+                    )
+                else:
+                    raise ValueError(
+                        f"provider_keys[{provider_id!r}] must be a non-empty string or null"
+                    )
 
     return get_me(user_id)

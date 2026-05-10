@@ -1,6 +1,6 @@
 # Running end to end
 
-Spin up the backend (Python) in one terminal, the Flutter app in another, then talk to the Insights tab. The whole stack is local-only — no auth, no remote services besides the Anthropic API.
+Spin up the backend (Python) in one terminal, the Flutter app in another, then talk to the Insights tab. The whole stack is local-only — no auth, no remote services besides whichever AI provider you've configured (Anthropic, OpenAI, or Google Gemini).
 
 Each section below explains *why* its commands exist, then gives you the lines to run.
 
@@ -8,7 +8,7 @@ Each section below explains *why* its commands exist, then gives you the lines t
 
 - **Python 3.11+** with `pip` and `venv`. Check: `python3 --version`.
 - **Flutter** (Dart SDK ≥ 3.11). Check: `flutter --version`.
-- **Anthropic API key.** Get one at <https://console.anthropic.com/>.
+- **At least one AI provider API key.** The default model is Anthropic Sonnet 4.6, but you can pick OpenAI or Gemini models in the Account screen and use those instead. Get keys at <https://console.anthropic.com/>, <https://platform.openai.com/api-keys>, or <https://aistudio.google.com/app/apikey>.
 
 ## 1. Backend — first time only
 
@@ -37,10 +37,12 @@ You only need to redo `pip install -e '.[dev]'` when `pyproject.toml` changes. T
 # Re-activate the venv if this is a fresh shell.
 cd backend && . .venv/bin/activate
 
-# Optional — only required if you want AI features without setting the key
-# via the in-app Account screen. The Account screen's stored key wins over
-# this env var.
+# Optional — only required if you want AI features without setting keys
+# via the in-app Account screen. DB-stored keys win over these env vars.
+# Set whichever providers you'll use.
 export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
+export GEMINI_API_KEY=...
 
 # Start the API. --reload makes uvicorn restart on source edits, --port pins
 # the URL the Flutter app will call. The lifespan hook auto-initializes the
@@ -110,7 +112,7 @@ Tests `forecast`. Expect a 12-point solid line plus a dashed forecast continuati
 ```text
 Where am I overspending compared to last quarter?
 ```
-Tests `compare_periods`. Chart optional — Claude decides.
+Tests `compare_periods`. Chart optional — the model decides.
 
 ## 6. Stopping
 
@@ -125,7 +127,7 @@ deactivate
 
 ```sh
 # Backend — exercises seed + every MCP data tool against a tmp DB.
-# Doesn't touch the Anthropic API.
+# Tests monkeypatch services.ai.client.chat, so no real provider calls are made.
 cd backend && . .venv/bin/activate && pytest
 
 # Frontend — analyzer must be clean before merging anything.
@@ -156,6 +158,6 @@ In a Claude Desktop `claude_desktop_config.json`:
 ## Troubleshooting
 
 - **Flutter shows "Network error" on every prompt.** The backend isn't running, or you forgot `--dart-define=API_BASE_URL=...`. Check `curl http://localhost:8000/healthz`.
-- **Backend errors with `ANTHROPIC_API_KEY` missing.** Set the env var in the same shell *before* `uvicorn`.
+- **AI features 400 with `ai_key_missing`.** No API key is configured for the selected model's provider. Either set the matching env var (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`) in the same shell *before* `uvicorn`, or paste a key into the Account screen.
 - **Categories show stale data after editing the seed.** Categories tab reads `MockData` in Flutter, *not* the backend. Edit `frontend/lib/data/mock_data.dart` to change what the Categories/Expenses tabs see. The AI's view is independent — see [data-model.md](data-model.md).
 - **First-run boot fails to find tables.** The schema, Budget root, and default user row are created by the FastAPI startup lifespan. If you ran a query through `python -m budget_trace_backend...` against a fresh DB without going through the server, init won't have happened — start the server once to bootstrap, or call `budget_trace_backend.db.bootstrap_db()` from your script.

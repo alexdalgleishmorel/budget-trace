@@ -13,8 +13,11 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 
-# Optional — set the Anthropic key here, or via the in-app Account screen.
+# Optional — set provider keys here, or via the in-app Account screen.
+# DB-stored keys win over env vars. Set whichever providers you'll use.
 export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
+export GEMINI_API_KEY=...
 
 uvicorn budget_trace_backend.main:app --reload --port 8000
 # First boot auto-creates data/budget_trace.db (schema + Budget root +

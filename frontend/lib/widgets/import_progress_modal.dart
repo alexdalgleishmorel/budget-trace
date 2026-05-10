@@ -285,7 +285,7 @@ class _SuccessBody extends StatelessWidget {
         if (categorizeKeyMissing) ...[
           const SizedBox(height: 12),
           Text(
-            'Auto-categorize was skipped — set an Anthropic key in Account to enable it.',
+            'Auto-categorize was skipped — set an API key in Account to enable it.',
             style: TextStyle(fontSize: 12, color: bt.ink4, height: 1.45),
           ),
         ],
@@ -416,7 +416,7 @@ class _ErrorBody extends StatelessWidget {
           );
         case 'ai_key_missing':
           return (
-            headline: 'AI features need an Anthropic key',
+            headline: 'AI features need an API key',
             body: 'Set one in Account, then try again.',
           );
         case 'feature_disabled':
@@ -429,6 +429,12 @@ class _ErrorBody extends StatelessWidget {
             headline: "Couldn't read this file",
             body: 'Supported: PDF, image (PNG/JPEG/WebP/GIF), CSV. '
                 'No tokens were used — nothing was sent to the model.',
+          );
+        case 'unsupported_content':
+          return (
+            headline: 'Selected model can\'t read this',
+            body: '${e.message} '
+                'PDF uploads work on Anthropic and Google models.',
           );
         default:
           return (

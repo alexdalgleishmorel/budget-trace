@@ -50,26 +50,32 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_source_hash
 
 -- Per-user settings. Single-user dev today: id=1; auth lands later.
 -- `features` is a JSON blob ({"ai": true}) so we can add new flags without
--- migrations. `anthropic_api_key` is plaintext (acceptable for local dev,
--- documented in docs/account.md). `theme` is one of 'system' | 'light' | 'dark'.
--- `anthropic_admin_api_key` is the (optional) sk-ant-admin-* key — when set,
--- the backend uses Anthropic's cost-report Admin API as the authoritative
--- spend source instead of locally-estimated token cost.
--- `anthropic_model` overrides the default model picked in services/anthropic_client.py.
+-- migrations. `theme` is one of 'system' | 'light' | 'dark'.
+-- `selected_model` is a model id from services/ai/registry.py — null falls
+-- back to SELECTED_MODEL env, then the registry's DEFAULT_MODEL.
+-- Per-provider API keys live in `ai_provider_keys` (one row per provider).
 CREATE TABLE IF NOT EXISTS users (
-    id                       INTEGER PRIMARY KEY,
-    features                 TEXT NOT NULL DEFAULT '{}',
-    anthropic_api_key        TEXT,
-    theme                    TEXT NOT NULL DEFAULT 'system',
-    anthropic_admin_api_key  TEXT,
-    anthropic_model          TEXT
+    id              INTEGER PRIMARY KEY,
+    features        TEXT NOT NULL DEFAULT '{}',
+    theme           TEXT NOT NULL DEFAULT 'system',
+    selected_model  TEXT
 );
 
--- One row per Anthropic API call. Powers the global "$X.XX spent" chip and
+-- One row per (user, provider). API key is plaintext (acceptable for local
+-- dev, documented in docs/account.md). When auth lands, we'll wrap this in
+-- a per-user encryption envelope.
+CREATE TABLE IF NOT EXISTS ai_provider_keys (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider  TEXT    NOT NULL,
+    api_key   TEXT    NOT NULL,
+    PRIMARY KEY (user_id, provider)
+);
+
+-- One row per AI API call. Powers the global "$X.XX spent" chip and
 -- per-chat estimates. `chat_session_id` is set only for chat calls (so we can
 -- bucket spend per Insights conversation); ai_parser and auto_categorize
 -- calls leave it NULL. `cost_usd` is a snapshot computed at insert time from
--- the price table in services/ai_usage.py; rerunning with new prices does
+-- the registry in services/ai/registry.py; rerunning with new prices does
 -- NOT retroactively update existing rows.
 CREATE TABLE IF NOT EXISTS ai_usage (
     id                            INTEGER PRIMARY KEY,
@@ -137,8 +143,14 @@ def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
-    _add_column_if_missing(conn, "users", "anthropic_admin_api_key", "TEXT")
-    _add_column_if_missing(conn, "users", "anthropic_model", "TEXT")
+    # Forward-compat for any DB created before `selected_model` existed.
+    _add_column_if_missing(conn, "users", "selected_model", "TEXT")
+    # Hard cutover: drop legacy Anthropic-specific columns if they exist.
+    # SQLite >= 3.35 supports DROP COLUMN. The check is idempotent so this
+    # is safe to run on already-migrated DBs and on fresh ones.
+    _drop_column_if_present(conn, "users", "anthropic_api_key")
+    _drop_column_if_present(conn, "users", "anthropic_admin_api_key")
+    _drop_column_if_present(conn, "users", "anthropic_model")
 
 
 def _add_column_if_missing(
@@ -148,6 +160,16 @@ def _add_column_if_missing(
     cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def _drop_column_if_present(
+    conn: sqlite3.Connection, table: str, column: str
+) -> None:
+    """Idempotent counterpart for `_add_column_if_missing`. Requires SQLite
+    >= 3.35 (released March 2021). The check keeps reruns cheap."""
+    cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column in cols:
+        conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
 
 
 def ensure_root_category(conn: sqlite3.Connection) -> None:

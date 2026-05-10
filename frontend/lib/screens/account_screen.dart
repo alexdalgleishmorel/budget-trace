@@ -6,10 +6,11 @@ import '../theme/app_theme.dart';
 import '../widgets/ai_spend_chip.dart';
 import '../widgets/budget_card.dart';
 
-/// Single-user settings page. Three sections:
-///   • Features    — master AI toggle
-///   • API key     — Anthropic key (masked, set/clear)
-///   • Appearance  — system / light / dark
+/// Single-user settings page. Two sections:
+///   • Appearance   — system / light / dark (top of the screen, always visible)
+///   • AI features  — collapsible card holding the master toggle and, when
+///                    AI is on, one API-key row per known provider, the
+///                    estimated-spend chip, and the model picker.
 ///
 /// Every control bubbles its update through `MeClient.update()` immediately
 /// and calls [onMeChanged] with the resulting [Me] so the parent rebuilds
@@ -32,10 +33,10 @@ class AccountScreen extends StatefulWidget {
 
 class _AccountScreenState extends State<AccountScreen> {
   late Me _me;
-  final _keyController = TextEditingController();
-  final _adminKeyController = TextEditingController();
-  bool _showKey = false;
-  bool _showAdminKey = false;
+  // Per-provider controller + visibility state. Initialized lazily as
+  // providers appear (so a new provider id from the backend just shows up).
+  final Map<String, TextEditingController> _keyControllers = {};
+  final Set<String> _visibleKeys = {};
   bool _saving = false;
   String? _error;
 
@@ -43,16 +44,18 @@ class _AccountScreenState extends State<AccountScreen> {
   void initState() {
     super.initState();
     _me = widget.me;
-    // Save buttons reveal themselves the moment the user types into a key
-    // field — listening on the controller is the cheapest way to drive that
-    // without making the row a StatefulWidget.
-    _keyController.addListener(_onTextChange);
-    _adminKeyController.addListener(_onTextChange);
     _refresh();
   }
 
-  void _onTextChange() {
-    if (mounted) setState(() {});
+  TextEditingController _controllerFor(String providerId) {
+    final existing = _keyControllers[providerId];
+    if (existing != null) return existing;
+    final ctrl = TextEditingController();
+    ctrl.addListener(() {
+      if (mounted) setState(() {});
+    });
+    _keyControllers[providerId] = ctrl;
+    return ctrl;
   }
 
   Future<void> _refresh() async {
@@ -68,20 +71,18 @@ class _AccountScreenState extends State<AccountScreen> {
 
   @override
   void dispose() {
-    _keyController.dispose();
-    _adminKeyController.dispose();
+    for (final c in _keyControllers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
   Future<void> _patch({
     FeatureFlags? features,
     String? theme,
-    String? anthropicApiKey,
-    bool apiKeyExplicit = false,
-    String? anthropicAdminApiKey,
-    bool adminKeyExplicit = false,
-    String? anthropicModel,
-    bool modelExplicit = false,
+    String? selectedModel,
+    bool selectedModelExplicit = false,
+    Map<String, String?>? providerKeys,
   }) async {
     setState(() {
       _saving = true;
@@ -91,12 +92,9 @@ class _AccountScreenState extends State<AccountScreen> {
       final me = await widget.client.update(
         features: features,
         theme: theme,
-        anthropicApiKey: anthropicApiKey,
-        apiKeyExplicit: apiKeyExplicit,
-        anthropicAdminApiKey: anthropicAdminApiKey,
-        adminKeyExplicit: adminKeyExplicit,
-        anthropicModel: anthropicModel,
-        modelExplicit: modelExplicit,
+        selectedModel: selectedModel,
+        selectedModelExplicit: selectedModelExplicit,
+        providerKeys: providerKeys,
       );
       if (!mounted) return;
       setState(() => _me = me);
@@ -112,28 +110,17 @@ class _AccountScreenState extends State<AccountScreen> {
     }
   }
 
-  Future<void> _saveKey() async {
-    final v = _keyController.text.trim();
+  Future<void> _saveKey(String providerId) async {
+    final ctrl = _controllerFor(providerId);
+    final v = ctrl.text.trim();
     if (v.isEmpty) return;
-    await _patch(anthropicApiKey: v, apiKeyExplicit: true);
-    _keyController.clear();
-    setState(() => _showKey = false);
+    await _patch(providerKeys: {providerId: v});
+    ctrl.clear();
+    setState(() => _visibleKeys.remove(providerId));
   }
 
-  Future<void> _clearKey() async {
-    await _patch(anthropicApiKey: null, apiKeyExplicit: true);
-  }
-
-  Future<void> _saveAdminKey() async {
-    final v = _adminKeyController.text.trim();
-    if (v.isEmpty) return;
-    await _patch(anthropicAdminApiKey: v, adminKeyExplicit: true);
-    _adminKeyController.clear();
-    setState(() => _showAdminKey = false);
-  }
-
-  Future<void> _clearAdminKey() async {
-    await _patch(anthropicAdminApiKey: null, adminKeyExplicit: true);
+  Future<void> _clearKey(String providerId) async {
+    await _patch(providerKeys: {providerId: null});
   }
 
   @override
@@ -158,91 +145,65 @@ class _AccountScreenState extends State<AccountScreen> {
           ],
           const SizedBox(height: 16),
           _Section(
-            label: 'Features',
-            child: _FeatureRow(
-              value: _me.features.ai,
-              busy: _saving,
-              onChanged: (v) => _patch(features: FeatureFlags(ai: v)),
-            ),
-          ),
-          // Everything below the AI toggle is gated on it. Flipping it off
-          // hides the API key, spend chip, model picker, and admin key —
-          // there's nothing useful you can configure when the master flag
-          // is off, and showing them would be misleading (changes wouldn't
-          // take effect until the user flipped it back on).
-          if (_me.features.ai) ...[
-            const SizedBox(height: 16),
-            _Section(
-              label: 'Anthropic API key',
-              child: _ApiKeyRow(
-                keyIsSet: _me.anthropicApiKeySet,
-                controller: _keyController,
-                showKey: _showKey,
-                onToggleVisibility: () => setState(() => _showKey = !_showKey),
-                onSave: _saving ? null : _saveKey,
-                onClear: _saving || !_me.anthropicApiKeySet ? null : _clearKey,
-                hint: 'sk-ant-…',
-                hintWhenSet:
-                    'Set. Used for AI parsing, auto-categorization, and chat.',
-                hintWhenUnset:
-                    'Not set — falls back to the ANTHROPIC_API_KEY env var.',
-              ),
-            ),
-            const SizedBox(height: 16),
-            _Section(
-              label: 'AI Spend',
-              child: _SpendRow(me: _me),
-            ),
-          ],
-          const SizedBox(height: 16),
-          _Section(
             label: 'Appearance',
             child: _ThemeRow(
               value: _me.theme,
               onChanged: (v) => _patch(theme: v),
             ),
           ),
-          if (_me.features.ai) ...[
-            const SizedBox(height: 16),
-            _ExpandableSection(
-              label: 'Advanced settings',
-              children: [
-                _LabelledChild(
+          const SizedBox(height: 16),
+          _ExpandableSection(
+            label: 'AI features',
+            // The master toggle is always the first row inside the dropdown.
+            // The remaining controls only appear when the toggle is on —
+            // they'd be misleading otherwise (changes wouldn't take effect
+            // until the master flag was flipped back on).
+            children: [
+              _FeatureRow(
+                value: _me.features.ai,
+                busy: _saving,
+                onChanged: (v) => _patch(features: FeatureFlags(ai: v)),
+              ),
+              if (_me.features.ai) ...[
+                _SubControl(
+                  label: 'API keys',
+                  child: _ApiKeysList(
+                    providers: _me.providers,
+                    controllers: _controllerFor,
+                    visible: _visibleKeys,
+                    onToggleVisibility: (id) => setState(() {
+                      if (_visibleKeys.contains(id)) {
+                        _visibleKeys.remove(id);
+                      } else {
+                        _visibleKeys.add(id);
+                      }
+                    }),
+                    onSave: _saving ? null : _saveKey,
+                    onClear: _saving ? null : _clearKey,
+                  ),
+                ),
+                _SubControl(
+                  label: 'AI Spend',
+                  child: _SpendRow(me: _me),
+                ),
+                _SubControl(
                   label: 'Model',
                   child: _ModelRow(
                     me: _me,
                     busy: _saving,
-                    onPick: (id) =>
-                        _patch(anthropicModel: id, modelExplicit: true),
-                    onReset: () =>
-                        _patch(anthropicModel: null, modelExplicit: true),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                _LabelledChild(
-                  label: 'Anthropic Admin API key',
-                  child: _ApiKeyRow(
-                    keyIsSet: _me.anthropicAdminApiKeySet,
-                    controller: _adminKeyController,
-                    showKey: _showAdminKey,
-                    onToggleVisibility: () =>
-                        setState(() => _showAdminKey = !_showAdminKey),
-                    onSave: _saving ? null : _saveAdminKey,
-                    onClear: _saving || !_me.anthropicAdminApiKeySet
-                        ? null
-                        : _clearAdminKey,
-                    hint: 'sk-ant-admin-…',
-                    hintWhenSet:
-                        'Set. Spend total reflects actual costs from Anthropic\'s '
-                        'billing API instead of locally estimated token cost.',
-                    hintWhenUnset:
-                        'Optional. When set, the spend total reflects actual costs '
-                        'from Anthropic\'s billing API instead of the local estimate.',
+                    onPick: (id) => _patch(
+                      selectedModel: id,
+                      selectedModelExplicit: true,
+                    ),
+                    onReset: () => _patch(
+                      selectedModel: null,
+                      selectedModelExplicit: true,
+                    ),
                   ),
                 ),
               ],
-            ),
-          ],
+            ],
+          ),
         ],
       ),
     );
@@ -273,9 +234,9 @@ class _Section extends StatelessWidget {
   }
 }
 
-/// Collapsible counterpart to [_Section]. Children render the same labelled
-/// look as a `_Section` so the visual hierarchy doesn't break when expanded —
-/// just wrap each in a [_LabelledChild].
+/// Collapsible card. Renders as a `BudgetCard` whose first row is the
+/// tappable header (label + chevron). When expanded, [children] are stacked
+/// inside the same card, separated by hairline dividers.
 class _ExpandableSection extends StatefulWidget {
   const _ExpandableSection({required this.label, required this.children});
 
@@ -292,49 +253,60 @@ class _ExpandableSectionState extends State<_ExpandableSection> {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        InkWell(
-          onTap: () => setState(() => _expanded = !_expanded),
-          borderRadius: const BorderRadius.all(Radius.circular(6)),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(4, 4, 4, 8),
-            child: Row(
-              children: [
-                Expanded(child: BudgetLabel(widget.label)),
-                Icon(
-                  _expanded
-                      ? Icons.keyboard_arrow_up
-                      : Icons.keyboard_arrow_down,
-                  size: 18,
-                  color: bt.ink4,
-                ),
-              ],
+    final body = <Widget>[];
+    for (var i = 0; i < widget.children.length; i++) {
+      body.add(const BudgetDivider());
+      body.add(Padding(
+        padding: const EdgeInsets.all(16),
+        child: widget.children[i],
+      ));
+    }
+    return BudgetCard(
+      clipContent: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                children: [
+                  Expanded(child: BudgetLabel(widget.label)),
+                  Icon(
+                    _expanded
+                        ? Icons.keyboard_arrow_up
+                        : Icons.keyboard_arrow_down,
+                    size: 18,
+                    color: bt.ink4,
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        AnimatedCrossFade(
-          duration: const Duration(milliseconds: 180),
-          firstChild: const SizedBox(width: double.infinity),
-          secondChild: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: widget.children,
+          AnimatedCrossFade(
+            duration: const Duration(milliseconds: 180),
+            firstChild: const SizedBox(width: double.infinity),
+            secondChild: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: body,
+            ),
+            crossFadeState: _expanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            sizeCurve: Curves.easeOut,
           ),
-          crossFadeState:
-              _expanded ? CrossFadeState.showSecond : CrossFadeState.showFirst,
-          sizeCurve: Curves.easeOut,
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
 
-/// Mirrors [_Section]'s label-above-card layout for use inside an
-/// [_ExpandableSection], where the wrapping section already owns the toggle
-/// header. Keeps each sub-control's own label distinct from the parent.
-class _LabelledChild extends StatelessWidget {
-  const _LabelledChild({required this.label, required this.child});
+/// Sub-control inside an [_ExpandableSection]: a small uppercase label
+/// above the [child]. The wrapping card and dividers are owned by the
+/// parent section, so this is just the label-above-content pairing.
+class _SubControl extends StatelessWidget {
+  const _SubControl({required this.label, required this.child});
 
   final String label;
   final Widget child;
@@ -344,14 +316,9 @@ class _LabelledChild extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: BudgetLabel(label),
-        ),
-        BudgetCard(
-          padding: const EdgeInsets.all(16),
-          child: child,
-        ),
+        BudgetLabel(label),
+        const SizedBox(height: 10),
+        child,
       ],
     );
   }
@@ -375,8 +342,8 @@ class _AuthBanner extends StatelessWidget {
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Single-user mode — auth is not yet implemented. Your Anthropic '
-              'API key is stored unencrypted in local SQLite.',
+              'Single-user mode — auth is not yet implemented. Your API '
+              'keys are stored unencrypted in local SQLite.',
               style: TextStyle(fontSize: 12, color: bt.ink2, height: 1.4),
             ),
           ),
@@ -462,39 +429,98 @@ class _FeatureRow extends StatelessWidget {
   }
 }
 
+/// One row per provider known by the backend, rendered in registry order.
+/// The list is fully data-driven — adding a provider in services/ai/registry.py
+/// makes it show up here without a frontend change.
+class _ApiKeysList extends StatelessWidget {
+  const _ApiKeysList({
+    required this.providers,
+    required this.controllers,
+    required this.visible,
+    required this.onToggleVisibility,
+    required this.onSave,
+    required this.onClear,
+  });
+
+  final List<ProviderStatus> providers;
+  final TextEditingController Function(String providerId) controllers;
+  final Set<String> visible;
+  final ValueChanged<String> onToggleVisibility;
+  final void Function(String providerId)? onSave;
+  final void Function(String providerId)? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    if (providers.isEmpty) {
+      final bt = context.bt;
+      return Text(
+        'No providers configured on the backend.',
+        style: TextStyle(fontSize: 11.5, color: bt.ink4),
+      );
+    }
+    final rows = <Widget>[];
+    for (var i = 0; i < providers.length; i++) {
+      if (i > 0) rows.add(const SizedBox(height: 14));
+      final p = providers[i];
+      rows.add(_ApiKeyRow(
+        provider: p,
+        controller: controllers(p.id),
+        showKey: visible.contains(p.id),
+        onToggleVisibility: () => onToggleVisibility(p.id),
+        onSave: onSave == null ? null : () => onSave!(p.id),
+        onClear: (onClear == null || !p.apiKeySet) ? null : () => onClear!(p.id),
+      ));
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
+  }
+}
+
 class _ApiKeyRow extends StatelessWidget {
   const _ApiKeyRow({
-    required this.keyIsSet,
+    required this.provider,
     required this.controller,
     required this.showKey,
     required this.onToggleVisibility,
     required this.onSave,
     required this.onClear,
-    required this.hint,
-    required this.hintWhenSet,
-    required this.hintWhenUnset,
   });
 
-  final bool keyIsSet;
+  final ProviderStatus provider;
   final TextEditingController controller;
   final bool showKey;
   final VoidCallback onToggleVisibility;
   final VoidCallback? onSave;
   final VoidCallback? onClear;
-  final String hint;
-  final String hintWhenSet;
-  final String hintWhenUnset;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    // Save is only relevant when the user has typed something — until then
-    // the field shows just the masked text + show/hide affordance, no
-    // commit affordance to clutter the row.
     final hasPendingChange = controller.text.trim().isNotEmpty;
+    final pill = _StatusPill(provider: provider);
+    final hint = provider.apiKeySet
+        ? 'Stored. Used for ${provider.displayName} models.'
+        : (provider.envFallback
+            ? 'Using ${provider.envVar} from the environment. Save a key '
+              'here to override.'
+            : 'Required if you select a ${provider.displayName} model below.');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Row(
+          children: [
+            Text(
+              provider.displayName,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: bt.ink,
+              ),
+            ),
+            const SizedBox(width: 10),
+            pill,
+          ],
+        ),
+        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
@@ -504,13 +530,18 @@ class _ApiKeyRow extends StatelessWidget {
                 autocorrect: false,
                 enableSuggestions: false,
                 decoration: InputDecoration(
-                  hintText: keyIsSet ? 'Replace stored key…' : hint,
+                  hintText: provider.apiKeySet
+                      ? 'Replace stored key…'
+                      : 'Paste ${provider.displayName} API key…',
                   isDense: true,
-                  border: OutlineInputBorder(borderRadius: BudgetRadius.inputBR),
+                  border: OutlineInputBorder(
+                      borderRadius: BudgetRadius.inputBR),
                   suffixIcon: IconButton(
                     tooltip: showKey ? 'Hide' : 'Show',
                     icon: Icon(
-                      showKey ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+                      showKey
+                          ? Icons.visibility_off_outlined
+                          : Icons.visibility_outlined,
                       size: 18,
                     ),
                     onPressed: onToggleVisibility,
@@ -521,30 +552,58 @@ class _ApiKeyRow extends StatelessWidget {
             ),
             if (hasPendingChange) ...[
               const SizedBox(width: 8),
-              FilledButton(
-                onPressed: onSave,
-                child: const Text('Save'),
-              ),
+              FilledButton(onPressed: onSave, child: const Text('Save')),
             ],
           ],
         ),
-        const SizedBox(height: 10),
+        const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
               child: Text(
-                keyIsSet ? hintWhenSet : hintWhenUnset,
-                style: TextStyle(fontSize: 11.5, color: bt.ink4, height: 1.4),
+                hint,
+                style:
+                    TextStyle(fontSize: 11.5, color: bt.ink4, height: 1.4),
               ),
             ),
-            if (keyIsSet)
-              TextButton(
-                onPressed: onClear,
-                child: const Text('Clear'),
-              ),
+            if (provider.apiKeySet)
+              TextButton(onPressed: onClear, child: const Text('Clear')),
           ],
         ),
       ],
+    );
+  }
+}
+
+class _StatusPill extends StatelessWidget {
+  const _StatusPill({required this.provider});
+
+  final ProviderStatus provider;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    final (label, fg, bg) = provider.apiKeySet
+        ? ('Stored', bt.pos, bt.pos.withValues(alpha: 0.12))
+        : (provider.envFallback
+            ? ('Env', bt.ink2, bt.surface2)
+            : ('Not set', bt.ink4, bt.surface2));
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BudgetRadius.chipBR,
+        border: Border.all(color: bt.ruleStrong),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          letterSpacing: 0.4,
+          color: fg,
+        ),
+      ),
     );
   }
 }
@@ -557,10 +616,6 @@ class _SpendRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final note = me.aiSpentSource == 'authoritative'
-        ? 'Reported by Anthropic Admin API (cost report).'
-        : 'Estimated from token usage and the price of the selected model. '
-            'Add an Admin API key below for actual figures.';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -568,14 +623,15 @@ class _SpendRow extends StatelessWidget {
           children: [
             AiSpendChip.detailed(
               amountUsd: me.aiSpentUsd,
-              isEstimate: me.isSpendEstimated,
-              label: 'spent on Anthropic',
+              label: 'spent on AI',
             ),
           ],
         ),
         const SizedBox(height: 10),
         Text(
-          note,
+          'Estimated from token usage and the selected model\'s published '
+          'per-MTok price. Not the same as your provider bill — check each '
+          'provider\'s dashboard for the authoritative figure.',
           style: TextStyle(fontSize: 11.5, color: bt.ink4, height: 1.4),
         ),
       ],
@@ -601,27 +657,35 @@ class _ModelRow extends StatelessWidget {
     final bt = context.bt;
     final options = me.availableModels;
     // Guard against an unexpected model id (e.g. env-pinned model not in
-    // MODEL_PRICES). Show the dropdown's current value as the resolved id
+    // the registry). Show the dropdown's current value as the resolved id
     // even if it's not in the list — Dart's DropdownButtonFormField requires
     // the value to be in items, so synthesise an entry if needed.
     final ids = options.map((m) => m.id).toSet();
-    final hasCurrent = ids.contains(me.anthropicModel);
+    final hasCurrent = ids.contains(me.selectedModel);
+    final providerLookup = {for (final p in me.providers) p.id: p.displayName};
     final items = [
       ...options.map(
         (m) => DropdownMenuItem<String>(
           value: m.id,
-          child: _ModelMenuItem(option: m),
+          child: _ModelMenuItem(
+            option: m,
+            providerName: providerLookup[m.provider] ?? m.provider,
+          ),
         ),
       ),
       if (!hasCurrent)
         DropdownMenuItem<String>(
-          value: me.anthropicModel,
+          value: me.selectedModel,
           child: Text(
-            me.anthropicModel,
+            me.selectedModel,
             style: TextStyle(fontSize: 13, color: bt.ink2),
           ),
         ),
     ];
+
+    final providerName =
+        providerLookup[me.selectedModelProvider] ?? me.selectedModelProvider;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -629,8 +693,8 @@ class _ModelRow extends StatelessWidget {
           // ValueKey re-mounts the form field whenever the resolved model
           // changes externally (e.g. "Reset to default") so the new
           // `initialValue` actually takes effect.
-          key: ValueKey(me.anthropicModel),
-          initialValue: me.anthropicModel,
+          key: ValueKey(me.selectedModel),
+          initialValue: me.selectedModel,
           isDense: true,
           decoration: InputDecoration(
             isDense: true,
@@ -641,6 +705,33 @@ class _ModelRow extends StatelessWidget {
             if (v != null) onPick(v);
           },
         ),
+        if (!me.selectedModelKeyAvailable) ...[
+          const SizedBox(height: 10),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: bt.warnBg,
+              borderRadius: BudgetRadius.smBR,
+              border: Border.all(color: bt.warn.withValues(alpha: 0.35)),
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(Icons.warning_amber_rounded, size: 14, color: bt.warn),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    '$providerName API key not set — AI features won\'t work '
+                    'until you add one above (or switch to a model whose '
+                    'provider has a key).',
+                    style: TextStyle(
+                        fontSize: 11.5, color: bt.ink2, height: 1.4),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 10),
         Row(
           children: [
@@ -663,9 +754,10 @@ class _ModelRow extends StatelessWidget {
 }
 
 class _ModelMenuItem extends StatelessWidget {
-  const _ModelMenuItem({required this.option});
+  const _ModelMenuItem({required this.option, required this.providerName});
 
   final ModelOption option;
+  final String providerName;
 
   @override
   Widget build(BuildContext context) {
@@ -674,17 +766,24 @@ class _ModelMenuItem extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          option.displayName,
+          '$providerName — ${option.displayName}',
           style: TextStyle(fontSize: 13, color: bt.ink),
         ),
         const SizedBox(width: 8),
         Text(
-          '\$${option.inputPerMtok.toStringAsFixed(0)}/MTok in · '
-          '\$${option.outputPerMtok.toStringAsFixed(0)}/MTok out',
+          '${_formatPrice(option.inputPerMtok)}/MTok in · '
+          '${_formatPrice(option.outputPerMtok)}/MTok out',
           style: TextStyle(fontSize: 11, color: bt.ink4),
         ),
       ],
     );
+  }
+
+  static String _formatPrice(double v) {
+    // Use 2 decimals for sub-$1 prices, 0 decimals for whole-dollar prices.
+    if (v < 1.0) return '\$${v.toStringAsFixed(2)}';
+    if (v == v.roundToDouble()) return '\$${v.toStringAsFixed(0)}';
+    return '\$${v.toStringAsFixed(2)}';
   }
 }
 

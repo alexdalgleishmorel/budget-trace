@@ -7,11 +7,18 @@
 │  Flutter app   │ ───────────────▶│  Chat orchestrator     │
 │  (Insights tab)│ ◀───────────────│  (FastAPI)             │
 └────────────────┘   {text, chart?}└──┬─────────────────────┘
-                                      │ Anthropic Messages API
+                                      │ services/ai/client.chat()
                                       │ (tools = MCP tools + present_to_user)
                                       ▼
                               ┌────────────────────┐
-                              │ Anthropic Claude   │
+                              │ LiteLLM dispatcher │
+                              └──┬─────────────────┘
+                                 │ provider SDK
+                                 ▼
+                              ┌────────────────────┐
+                              │ Selected provider  │
+                              │ (Anthropic / OpenAI│
+                              │  / Google / …)     │
                               └──┬─────────────────┘
                                  │ tool calls
                                  ▼
@@ -37,13 +44,13 @@ When the user sends "what does my grocery spending look like the past 6 months?"
 2. `ChatClient` ([frontend/lib/services/chat_client.dart](../frontend/lib/services/chat_client.dart)) POSTs `{messages: [...]}` to `${API_BASE_URL}/chat`. `API_BASE_URL` is set via `--dart-define`.
 3. FastAPI's `chat` handler ([backend/src/budget_trace_backend/main.py](../backend/src/budget_trace_backend/main.py)) calls `run_chat`.
 4. `run_chat` ([backend/src/budget_trace_backend/chat.py](../backend/src/budget_trace_backend/chat.py)):
-   1. Builds tool schemas from the Python signatures of `TOOL_FUNCTIONS` plus the inline `present_to_user` schema.
-   2. Sends the conversation to the Anthropic Messages API along with the tool list and the system prompt.
-   3. Loops on `tool_use` blocks: each call to `aggregate_spending`, `list_categories`, etc. is dispatched against the in-process function, the result is appended as a `tool_result`, and the loop iterates.
-   4. When Claude calls `present_to_user(text, chart?)`, those args become the HTTP response body. The chart (if present) is parsed into a `ChartSpec` model and serialised to JSON.
+   1. Builds tool schemas from the Python signatures of `TOOL_FUNCTIONS` plus the inline `present_to_user` schema, in OpenAI/LiteLLM function-tool shape.
+   2. Sends the conversation through [`services/ai/client.chat()`](../backend/src/budget_trace_backend/services/ai/client.py), which resolves the selected model's provider, looks up the API key, prefixes the model id for LiteLLM, and dispatches the call.
+   3. Loops on `tool_calls` in the response: each call to `aggregate_spending`, `list_categories`, etc. is dispatched against the in-process function, the result is appended as a `tool` message, and the loop iterates.
+   4. When the model calls `present_to_user(text, chart?)`, those args become the HTTP response body. The chart (if present) is parsed into a `ChartSpec` model and serialised to JSON.
 5. Flutter receives `{text, chart?}`. The pending assistant message is replaced with the resolved one. If the message has a chart, `_latestChart` recomputes and the sticky chart panel above the chat re-renders.
 
-The conversation is fully stateless on the backend — every turn the full history is sent up. This matches the Anthropic Messages API shape and keeps server-side simplicity high.
+The conversation is fully stateless on the backend — every turn the full history is sent up. LiteLLM normalises request/response across providers so the orchestrator is provider-agnostic.
 
 ## Why two tool surfaces
 

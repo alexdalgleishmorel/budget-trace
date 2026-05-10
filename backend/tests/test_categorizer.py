@@ -1,10 +1,10 @@
-"""Auto-categorizer tests. Stubs `get_client()` so no network is hit."""
+"""Auto-categorizer tests. Stubs `ai.client.chat()` so no network is hit."""
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,15 +14,18 @@ from budget_trace_backend import seed
 from budget_trace_backend.importers import categorizer
 from budget_trace_backend.importers.common import ImportedRow, insert_rows
 from budget_trace_backend.main import app
-from budget_trace_backend.services import anthropic_client
+from budget_trace_backend.services.ai import client as ai_client
 from budget_trace_backend.services import categories as cat_svc
 from budget_trace_backend.services import transactions as svc
 
 
 @pytest.fixture()
-def seeded_db(tmp_path: Path) -> Path:
+def seeded_db(tmp_path: Path, monkeypatch) -> Path:
     target = tmp_path / "test.db"
     os.environ["BUDGET_TRACE_DB"] = str(target)
+    # Block env-var fallback so AiKeyMissing reliably fires when expected.
+    for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        monkeypatch.delenv(var, raising=False)
     seed.main(target)
     yield target
     os.environ.pop("BUDGET_TRACE_DB", None)
@@ -33,21 +36,25 @@ def client(seeded_db: Path) -> TestClient:
     return TestClient(app)
 
 
-def _fake_client_returning(assignments: list[dict]):
-    """Build a stand-in for the Anthropic client that emits an
-    `assign_categories` tool_use with the supplied assignments."""
+def _fake_chat_returning(assignments: list[dict]):
+    """Build a stand-in for `ai.client.chat` that emits an `assign_categories`
+    tool call with the supplied assignments."""
 
-    block = SimpleNamespace(
-        type="tool_use",
-        name="assign_categories",
-        input={"assignments": assignments},
-    )
-    resp = SimpleNamespace(
-        content=[block],
-        usage=SimpleNamespace(input_tokens=10, output_tokens=5),
-    )
-    messages = SimpleNamespace(create=lambda **kw: resp)
-    return SimpleNamespace(messages=messages)
+    def fake(*, model, system, messages, tools=None, max_tokens=2048):
+        return {
+            "content": None,
+            "tool_calls": [{
+                "id": "call_test",
+                "name": "assign_categories",
+                "arguments_json": json.dumps({"assignments": assignments}),
+            }],
+            "usage": {
+                "input_tokens": 10, "output_tokens": 5,
+                "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
+            },
+            "finish_reason": "tool_calls",
+        }
+    return fake
 
 
 def _insert_uncategorised(seeded_db: Path) -> list[int]:
@@ -64,11 +71,14 @@ def test_categorizer_assigns_via_fake_ai(seeded_db: Path, monkeypatch) -> None:
     ids = _insert_uncategorised(seeded_db)
     assert len(ids) == 2
 
-    fake = _fake_client_returning([
-        {"transaction_id": ids[0], "category_path": "Living / Grocery"},
-        {"transaction_id": ids[1], "category_path": "Living / Gas"},
-    ])
-    monkeypatch.setattr(categorizer, "get_client", lambda: fake)
+    monkeypatch.setattr(
+        categorizer,
+        "ai_chat",
+        _fake_chat_returning([
+            {"transaction_id": ids[0], "category_path": "Living / Grocery"},
+            {"transaction_id": ids[1], "category_path": "Living / Gas"},
+        ]),
+    )
 
     result = categorizer.categorize_rows(ids)
 
@@ -87,13 +97,16 @@ def test_categorizer_assigns_via_fake_ai(seeded_db: Path, monkeypatch) -> None:
 def test_categorizer_drops_invalid_paths(seeded_db: Path, monkeypatch) -> None:
     ids = _insert_uncategorised(seeded_db)
 
-    fake = _fake_client_returning([
-        # Hallucinated path — not in the leaf list.
-        {"transaction_id": ids[0], "category_path": "Made Up / Imaginary"},
-        # Non-leaf path — "Living" is a parent, not a leaf.
-        {"transaction_id": ids[1], "category_path": "Living"},
-    ])
-    monkeypatch.setattr(categorizer, "get_client", lambda: fake)
+    monkeypatch.setattr(
+        categorizer,
+        "ai_chat",
+        _fake_chat_returning([
+            # Hallucinated path — not in the leaf list.
+            {"transaction_id": ids[0], "category_path": "Made Up / Imaginary"},
+            # Non-leaf path — "Living" is a parent, not a leaf.
+            {"transaction_id": ids[1], "category_path": "Living"},
+        ]),
+    )
 
     result = categorizer.categorize_rows(ids)
 
@@ -103,11 +116,9 @@ def test_categorizer_drops_invalid_paths(seeded_db: Path, monkeypatch) -> None:
 
 
 def test_categorizer_empty_ids_skips_ai_call(seeded_db: Path, monkeypatch) -> None:
-    # If this test ever calls the AI, monkeypatch will explode loudly.
-    def boom():
+    def boom(**kw):
         raise AssertionError("AI must not be called for empty input")
-
-    monkeypatch.setattr(categorizer, "get_client", boom)
+    monkeypatch.setattr(categorizer, "ai_chat", boom)
 
     result = categorizer.categorize_rows([])
 
@@ -120,10 +131,9 @@ def test_categorizer_empty_ids_skips_ai_call(seeded_db: Path, monkeypatch) -> No
 def test_categorizer_missing_key_degrades_gracefully(seeded_db: Path, monkeypatch) -> None:
     ids = _insert_uncategorised(seeded_db)
 
-    def raise_missing():
-        raise anthropic_client.AiKeyMissing()
-
-    monkeypatch.setattr(categorizer, "get_client", raise_missing)
+    def raise_missing(**kw):
+        raise ai_client.AiKeyMissing("anthropic")
+    monkeypatch.setattr(categorizer, "ai_chat", raise_missing)
 
     result = categorizer.categorize_rows(ids)
 
@@ -190,10 +200,13 @@ def test_categorizer_cascades_to_existing_same_merchant(seeded_db: Path, monkeyp
     grocery_ids = [i for i in ids
                    if next(t for t in svc.list_transactions(limit=500) if t["id"] == i)["merchant"] == "WHOLE FOODS"]
 
-    fake = _fake_client_returning([
-        {"transaction_id": grocery_ids[0], "category_path": "Living / Grocery"},
-    ])
-    monkeypatch.setattr(categorizer, "get_client", lambda: fake)
+    monkeypatch.setattr(
+        categorizer,
+        "ai_chat",
+        _fake_chat_returning([
+            {"transaction_id": grocery_ids[0], "category_path": "Living / Grocery"},
+        ]),
+    )
 
     result = categorizer.categorize_rows(grocery_ids)
     assert result["categorized"] == 1  # input batch only
@@ -209,11 +222,14 @@ def test_categorizer_first_assignment_wins_within_batch(seeded_db: Path, monkeyp
     a = svc.create_transaction(date="2026-04-01", merchant="DUPE MERCH", amount=10.0)
     b = svc.create_transaction(date="2026-04-02", merchant="DUPE MERCH", amount=11.0)
 
-    fake = _fake_client_returning([
-        {"transaction_id": a["id"], "category_path": "Living / Grocery"},
-        {"transaction_id": b["id"], "category_path": "Living / Gas"},  # conflicting
-    ])
-    monkeypatch.setattr(categorizer, "get_client", lambda: fake)
+    monkeypatch.setattr(
+        categorizer,
+        "ai_chat",
+        _fake_chat_returning([
+            {"transaction_id": a["id"], "category_path": "Living / Grocery"},
+            {"transaction_id": b["id"], "category_path": "Living / Gas"},  # conflicting
+        ]),
+    )
 
     result = categorizer.categorize_rows([a["id"], b["id"]])
     assert result["categorized"] == 2  # both rows categorized via cascade
@@ -227,7 +243,7 @@ def test_categorizer_first_assignment_wins_within_batch(seeded_db: Path, monkeyp
 def test_categorizer_pre_applies_known_merchants_skipping_ai(
     seeded_db: Path, monkeypatch
 ) -> None:
-    """When every input merchant is already in history, Claude must NOT be
+    """When every input merchant is already in history, the AI must NOT be
     called — the categorizer takes the pre-apply fast path."""
     cat = cat_svc.create_category(name="My Cafes", description="Coffee")
     # Seed history: one categorized BEAN MACHINE row.
@@ -243,11 +259,11 @@ def test_categorizer_pre_applies_known_merchants_skipping_ai(
     new_ids = result.inserted_ids
     assert len(new_ids) == 1
 
-    def boom():
+    def boom(**kw):
         raise AssertionError(
-            "Claude must not be called when every input merchant is already known"
+            "AI must not be called when every input merchant is already known"
         )
-    monkeypatch.setattr(categorizer, "get_client", boom)
+    monkeypatch.setattr(categorizer, "ai_chat", boom)
 
     out = categorizer.categorize_rows(new_ids)
     assert out["categorized"] == 1
@@ -284,8 +300,9 @@ def test_categorizer_history_uses_most_recent_assignment(
     with db_module.connect(seeded_db) as conn:
         new_ids = insert_rows(conn, rows).inserted_ids
 
-    monkeypatch.setattr(categorizer, "get_client",
-                        lambda: (_ for _ in ()).throw(AssertionError("no AI please")))
+    def boom(**kw):
+        raise AssertionError("no AI please")
+    monkeypatch.setattr(categorizer, "ai_chat", boom)
 
     out = categorizer.categorize_rows(new_ids)
     assert out["pre_applied"] == 1
@@ -300,14 +317,14 @@ def test_categorizer_mixes_pre_applied_and_ai_assignments(
     seeded_db: Path, monkeypatch
 ) -> None:
     """Half-known, half-unknown merchants in one batch: pre-apply for the
-    known half, Claude for the rest. Counts are accurate."""
+    known half, AI for the rest. Counts are accurate."""
     cat = cat_svc.create_category(name="From History", description="x")
     # Seed history for one merchant.
     svc.create_transaction(
         date="2026-03-15", merchant="KNOWN MERCH", amount=20.00, category_id=cat["id"],
     )
 
-    # Import 4 rows: 2 KNOWN (will pre-apply), 2 NEW (will go to Claude).
+    # Import 4 rows: 2 KNOWN (will pre-apply), 2 NEW (will go to AI).
     new_rows = [
         ImportedRow(date="2026-04-01", merchant="KNOWN MERCH", amount=10.00),
         ImportedRow(date="2026-04-02", merchant="KNOWN MERCH", amount=11.00),
@@ -323,14 +340,17 @@ def test_categorizer_mixes_pre_applied_and_ai_assignments(
                     if next(t for t in svc.list_transactions(limit=500) if t["id"] == i)["merchant"] == "NEW MERCH A")
     new_b_id = next(i for i in new_ids
                     if next(t for t in svc.list_transactions(limit=500) if t["id"] == i)["merchant"] == "NEW MERCH B")
-    fake = _fake_client_returning([
-        {"transaction_id": new_a_id, "category_path": "Living / Grocery"},
-        {"transaction_id": new_b_id, "category_path": "Living / Gas"},
-    ])
-    monkeypatch.setattr(categorizer, "get_client", lambda: fake)
+    monkeypatch.setattr(
+        categorizer,
+        "ai_chat",
+        _fake_chat_returning([
+            {"transaction_id": new_a_id, "category_path": "Living / Grocery"},
+            {"transaction_id": new_b_id, "category_path": "Living / Gas"},
+        ]),
+    )
 
     out = categorizer.categorize_rows(new_ids)
     assert out["categorized"] == 4
     assert out["pre_applied"] == 2  # the 2 KNOWN rows
     assert out["skipped_no_match"] == 0
-    assert out["ai_usage"] is not None  # Claude WAS called for the 2 unknowns
+    assert out["ai_usage"] is not None  # AI WAS called for the 2 unknowns

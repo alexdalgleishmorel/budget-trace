@@ -3,8 +3,8 @@
 We bridge two tool surfaces:
 
 1. **Data tools** — defined in ``mcp_server.TOOL_FUNCTIONS``. The same Python
-   functions back the standalone MCP server *and* the in-process Anthropic
-   tool-use loop here. Single source of truth.
+   functions back the standalone MCP server *and* the in-process tool-use
+   loop here. Single source of truth.
 
 2. **One inline output tool — ``present_to_user``**. The system prompt forces
    the model to call this tool exactly once at the end. Its arguments *are*
@@ -12,12 +12,12 @@ We bridge two tool surfaces:
    optional chart) without parsing freeform model text.
 
 Loop:
-  - Build tool definitions + system prompt.
-  - Send to Anthropic Messages API.
-  - While the response has tool_use blocks: dispatch each, append a
-    tool_result, send back.
-  - When the response has a `present_to_user` tool_use, capture its args and
-    return as the response. Cap iterations to keep runaway loops in check.
+  - Build OpenAI/LiteLLM-style tool definitions + system prompt.
+  - Send to the selected model via services/ai/client.py::chat().
+  - While the response has tool_calls: dispatch each, append a tool message,
+    send back.
+  - When the response has a `present_to_user` tool call, capture its args
+    and return as the response. Cap iterations to keep runaway loops in check.
 """
 
 from __future__ import annotations
@@ -31,7 +31,8 @@ from typing import Any, get_type_hints
 from .mcp_server import READ_TOOLS, WRITE_TOOLS
 from .models import ChartSpec, ChatRequest, ChatResponse
 from .services import ai_usage
-from .services.anthropic_client import get_client, get_model
+from .services.ai.client import chat as ai_chat
+from .services.ai.client import get_selected_model
 
 log = logging.getLogger(__name__)
 
@@ -90,7 +91,7 @@ def _python_type_to_jsonschema(tp: Any) -> dict:
 
 
 def _build_tool_definition(name: str, fn) -> dict:
-    """Inspect a Python function signature and emit an Anthropic tool schema."""
+    """Inspect a Python function signature and emit an OpenAI/LiteLLM tool schema."""
     sig = inspect.signature(fn)
     hints = get_type_hints(fn)
     properties: dict = {}
@@ -101,12 +102,15 @@ def _build_tool_definition(name: str, fn) -> dict:
         if param.default is inspect.Parameter.empty:
             required.append(pname)
     return {
-        "name": name,
-        "description": (fn.__doc__ or "").strip(),
-        "input_schema": {
-            "type": "object",
-            "properties": properties,
-            "required": required,
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": (fn.__doc__ or "").strip(),
+            "parameters": {
+                "type": "object",
+                "properties": properties,
+                "required": required,
+            },
         },
     }
 
@@ -117,55 +121,58 @@ def _build_tool_definitions() -> list[dict]:
 
 
 PRESENT_TOOL: dict = {
-    "name": "present_to_user",
-    "description": (
-        "Output channel. Call exactly once at the end of your turn. The text "
-        "field is what the user reads; the optional chart field renders as a "
-        "time-series chart pinned above the chat."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "text": {"type": "string"},
-            "chart": {
-                "type": "object",
-                "description": "Optional time-series chart spec.",
-                "properties": {
-                    "title": {"type": "string"},
-                    "y_axis_label": {"type": "string"},
-                    "x_axis_label": {"type": "string"},
-                    "x_tick_labels": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "Optional list of x-axis tick labels.",
-                    },
-                    "series": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "label": {"type": "string"},
-                                "style": {"type": "string", "enum": ["solid", "dashed"]},
-                                "points": {
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "x": {"type": "number"},
-                                            "y": {"type": "number"},
+    "type": "function",
+    "function": {
+        "name": "present_to_user",
+        "description": (
+            "Output channel. Call exactly once at the end of your turn. The text "
+            "field is what the user reads; the optional chart field renders as a "
+            "time-series chart pinned above the chat."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "chart": {
+                    "type": "object",
+                    "description": "Optional time-series chart spec.",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "y_axis_label": {"type": "string"},
+                        "x_axis_label": {"type": "string"},
+                        "x_tick_labels": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Optional list of x-axis tick labels.",
+                        },
+                        "series": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "label": {"type": "string"},
+                                    "style": {"type": "string", "enum": ["solid", "dashed"]},
+                                    "points": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "x": {"type": "number"},
+                                                "y": {"type": "number"},
+                                            },
+                                            "required": ["x", "y"],
                                         },
-                                        "required": ["x", "y"],
                                     },
                                 },
+                                "required": ["label", "points"],
                             },
-                            "required": ["label", "points"],
                         },
                     },
+                    "required": ["title", "series"],
                 },
-                "required": ["title", "series"],
             },
+            "required": ["text"],
         },
-        "required": ["text"],
     },
 }
 
@@ -187,20 +194,30 @@ def _dispatch(tool_name: str, tool_input: dict) -> Any:
         return {"error": str(e)}
 
 
+def _parse_args(arguments_json: str) -> dict:
+    if not arguments_json:
+        return {}
+    try:
+        parsed = json.loads(arguments_json)
+    except json.JSONDecodeError:
+        log.warning("tool call had invalid JSON arguments: %r", arguments_json)
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 # ── Public entry point ──────────────────────────────────────────────────────
 
 
 def run_chat(request: ChatRequest) -> ChatResponse:
-    client = get_client()
-    model = get_model()
+    model = get_selected_model()
     tools = _build_tool_definitions()
     system_prompt = _system_prompt()
     messages: list[dict] = [
         {"role": m.role, "content": m.content} for m in request.messages
     ]
 
-    # Sum usage across every messages.create call in this turn — the tool-use
-    # loop typically emits 2-4 of them. We persist a single ai_usage row at
+    # Sum usage across every chat() call in this turn — the tool-use loop
+    # typically emits 2-4 of them. We persist a single ai_usage row at
     # the end so per-chat spend is one row per user prompt.
     totals = {
         "input_tokens": 0,
@@ -225,19 +242,21 @@ def run_chat(request: ChatRequest) -> ChatResponse:
         return response
 
     for _ in range(MAX_TOOL_ITERATIONS):
-        resp = client.messages.create(
+        resp = ai_chat(
             model=model,
-            max_tokens=2048,
             system=system_prompt,
-            tools=tools,
             messages=messages,
+            tools=tools,
+            max_tokens=2048,
         )
-        _accumulate(totals, resp.usage)
+        _accumulate(totals, resp.get("usage") or {})
+
+        tool_calls = resp.get("tool_calls") or []
 
         # If the model emits a present_to_user call we're done.
-        for block in resp.content:
-            if getattr(block, "type", None) == "tool_use" and block.name == "present_to_user":
-                args = block.input or {}
+        for tc in tool_calls:
+            if tc.get("name") == "present_to_user":
+                args = _parse_args(tc.get("arguments_json", ""))
                 chart = None
                 if args.get("chart"):
                     try:
@@ -246,36 +265,48 @@ def run_chat(request: ChatRequest) -> ChatResponse:
                         log.exception("invalid chart spec from model: %r", args.get("chart"))
                 return _finalize(ChatResponse(text=str(args.get("text", "")), chart=chart))
 
-        # Otherwise, dispatch any data-tool calls and continue.
-        tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
-        if not tool_uses:
-            # Model said something but didn't call present_to_user. Salvage any
+        if not tool_calls:
+            # Model said something but didn't call any tools. Salvage the
             # plain text and bail.
-            text_blocks = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
             return _finalize(
-                ChatResponse(text="\n".join(text_blocks).strip() or _FALLBACK, chart=None)
+                ChatResponse(text=(resp.get("content") or _FALLBACK).strip() or _FALLBACK,
+                             chart=None)
             )
 
-        # Append the assistant turn and the tool_result entries, then re-loop.
-        messages.append({"role": "assistant", "content": [b.model_dump() for b in resp.content]})
-        tool_results = []
-        for tu in tool_uses:
-            result = _dispatch(tu.name, tu.input or {})
-            tool_results.append({
-                "type": "tool_result",
-                "tool_use_id": tu.id,
+        # Append the assistant turn (with its tool_calls) and one tool-result
+        # message per call, then re-loop.
+        messages.append({
+            "role": "assistant",
+            "content": resp.get("content") or "",
+            "tool_calls": [
+                {
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["name"],
+                        "arguments": tc.get("arguments_json", "") or "{}",
+                    },
+                }
+                for tc in tool_calls
+            ],
+        })
+        for tc in tool_calls:
+            args = _parse_args(tc.get("arguments_json", ""))
+            result = _dispatch(tc["name"], args)
+            messages.append({
+                "role": "tool",
+                "tool_call_id": tc["id"],
                 "content": json.dumps(result, default=str),
             })
-        messages.append({"role": "user", "content": tool_results})
 
     return _finalize(ChatResponse(text=_FALLBACK, chart=None))
 
 
-def _accumulate(totals: dict, usage: Any) -> None:
-    if usage is None:
+def _accumulate(totals: dict, usage: dict) -> None:
+    if not usage:
         return
     for f in totals:
-        totals[f] += int(getattr(usage, f, 0) or 0)
+        totals[f] += int(usage.get(f, 0) or 0)
 
 
 _FALLBACK = "Sorry, I couldn't put that together — try rephrasing the question."

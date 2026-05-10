@@ -20,8 +20,8 @@ const kDesktopBreakpoint = 600.0;
 /// Top-level shell. Owns the loaded category tree and the current cycle's
 /// transaction list; takes the user [Me] from the parent (so theme + AI flag
 /// changes from AccountScreen flow back up to MaterialApp). Tab indices are
-/// stable: 0=Categories, 1=Expenses, 2=Insights — the nav widgets just hide
-/// the Insights row when [Me.features.ai] is off.
+/// stable: 0=Categories, 1=Expenses, 2=Insights — all three tabs are always
+/// rendered, and the Insights screen handles its own AI-disabled empty state.
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
@@ -109,11 +109,8 @@ class _AppShellState extends State<AppShell> {
   @override
   void didUpdateWidget(AppShell old) {
     super.didUpdateWidget(old);
-    // If AI just flipped off and the user was on Insights, snap to Categories
-    // so we don't render an empty pane behind a hidden tab.
-    if (old.me.features.ai && !widget.me.features.ai && _tab == 2) {
-      _tab = 0;
-    }
+    // No tab redirect needed — the Insights tab handles AI-off by rendering
+    // the AiPromo banner in place of the chat.
   }
 
   @override
@@ -240,7 +237,6 @@ class _AppShellState extends State<AppShell> {
         client: _transactionsClient,
         aiEnabled: widget.me.features.ai,
         aiSpentUsd: widget.me.aiSpentUsd,
-        aiSpentEstimated: widget.me.isSpendEstimated,
         onChanged: _refetchAll,
         cycleLabels: _cycleLabels,
         onCycleChange: _onCycleChange,
@@ -249,9 +245,10 @@ class _AppShellState extends State<AppShell> {
       );
     }
 
-    if (tab == 2 && widget.me.features.ai) {
+    if (tab == 2) {
       return InsightsScreen(
-        apiKeySet: widget.me.anthropicApiKeySet,
+        aiEnabled: widget.me.features.ai,
+        apiKeySet: widget.me.selectedModelKeyAvailable,
         onOpenAccount: _openAccount,
         onSpendChanged: () => widget.onRefreshMe(),
       );
@@ -265,7 +262,6 @@ class _AppShellState extends State<AppShell> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isDesktop = constraints.maxWidth >= kDesktopBreakpoint;
-        final showInsights = widget.me.features.ai;
 
         if (isDesktop) {
           return Scaffold(
@@ -277,7 +273,6 @@ class _AppShellState extends State<AppShell> {
                   cycleLabel: _cycleLabel,
                   cycleLabels: _cycleLabels,
                   onCycleChange: _onCycleChange,
-                  showInsights: showInsights,
                   onOpenAccount: _openAccount,
                 ),
                 Expanded(child: _buildScreen(_tab)),
@@ -293,7 +288,6 @@ class _AppShellState extends State<AppShell> {
               BottomTabsBar(
                 current: _tab,
                 onNav: _onNav,
-                showInsights: showInsights,
               ),
             ],
           ),

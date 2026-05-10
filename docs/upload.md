@@ -30,15 +30,17 @@ Server-side: `POST /transactions/import?parser=ai` checks `users.features.ai` an
 2. For PDFs: try `pdfplumber` text extraction first. If that fails, fall back to base64 document input.
 3. For images: base64 vision input.
 
-The orchestrator then sends the content to Claude with one tool, `parse_transactions`, whose schema *is* the `ImportedRow` shape (date, merchant, amount). Claude calls it once with the full row list; the orchestrator hands those rows off to the same `insert_rows` path the CSV parser uses.
+The orchestrator then sends the content to the selected AI model with one tool, `parse_transactions`, whose schema *is* the `ImportedRow` shape (date, merchant, amount). The model calls it once with the full row list; the orchestrator hands those rows off to the same `insert_rows` path the CSV parser uses.
 
 The response includes an `ai_usage` object (`{input_tokens, output_tokens}`) for cost observability. CSV imports leave `ai_usage` as `null`.
 
-If `ai` is on but no Anthropic API key is configured (neither stored on the user nor in the `ANTHROPIC_API_KEY` env), the route returns `400 ai_key_missing`. CSV uploads are unaffected — they never need a key.
+**Provider note:** PDF document support depends on the selected model's provider. Anthropic and Google models accept PDFs; OpenAI models don't. Uploading a PDF while an OpenAI model is selected returns `400 unsupported_content` with a message suggesting the user switch model — no tokens are charged, the bytes never reach the model.
+
+If `ai` is on but no API key is configured for the selected model's provider (neither stored via `PATCH /me` nor in the matching env var), the route returns `400 ai_key_missing`. CSV uploads are unaffected — they never need a key.
 
 ## Auto-categorize on import (gated by `ai`)
 
-When `ai` is on, every successful import (CSV or AI) runs the freshly-inserted rows through `importers/categorizer.py` before returning. One Claude call per import: the model receives the rows + the leaf category list (with descriptions) and returns an `assign_categories` tool call mapping `transaction_id → category_path`. Anything the model isn't confident about it omits, leaving the row at `category_id = NULL` for the user to handle.
+When `ai` is on, every successful import (CSV or AI) runs the freshly-inserted rows through `importers/categorizer.py` before returning. One AI call per import: the model receives the rows + the leaf category list (with descriptions) and returns an `assign_categories` tool call mapping `transaction_id → category_path`. Anything the model isn't confident about it omits, leaving the row at `category_id = NULL` for the user to handle.
 
 It's best-effort. Every failure mode (missing key, network error, no leaves defined, unparseable model output) shows up as a structured `error` in the response — the import itself is always 200.
 

@@ -8,15 +8,13 @@ class BottomTabsBar extends StatelessWidget {
     super.key,
     required this.current,
     required this.onNav,
-    required this.showInsights,
   });
 
   final int current;
   final ValueChanged<int> onNav;
-  final bool showInsights;
 
-  // Indices stay 0=Categories, 1=Expenses, 2=Insights regardless of
-  // visibility — see SideNav for the same pattern.
+  // Indices stay 0=Categories, 1=Expenses, 2=Insights. All three are always
+  // rendered — Insights handles its own AI-disabled empty state.
   static const _items = [
     (icon: 'grid', label: 'Categories'),
     (icon: 'expenses', label: 'Expenses'),
@@ -26,7 +24,7 @@ class BottomTabsBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final visibleCount = showInsights ? _items.length : _items.length - 1;
+    final visibleCount = _items.length;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       child: ClipRRect(

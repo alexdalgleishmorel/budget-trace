@@ -1,15 +1,13 @@
-"""AI spend tracking — pricing table + per-call recording.
+"""AI spend tracking — per-call recording + per-call cost estimation.
 
-Every Anthropic call (chat orchestrator, AI parser, auto-categorizer) ends in
-a `record_usage(...)` here. We snapshot the per-call cost using `MODEL_PRICES`
-at insert time so changing rates later doesn't retroactively rewrite history.
+Every AI call (chat orchestrator, AI parser, auto-categorizer) ends in a
+`record_usage(...)` here. We snapshot the per-call cost using the price
+table in `services/ai/registry.py` at insert time so changing rates later
+doesn't retroactively rewrite history.
 
-`MODEL_PRICES` is the only source of truth for what models the app supports.
 The Settings dropdown is built from `available_models()`, and `PATCH /me`
-rejects model IDs that aren't in here so the spend chip always has a price
+rejects model ids not in the registry so the spend chip always has a price
 to compute against.
-
-Verify rates against the published Anthropic pricing page when you bump them.
 """
 
 from __future__ import annotations
@@ -18,34 +16,8 @@ from datetime import datetime
 from typing import Any
 
 from ..db import connect, init_schema
-
-# Per-MTok USD rates (input / output / cache write / cache read). `display_name`
-# drives the Settings UI; `id` matches the Anthropic model identifier.
-MODEL_PRICES: dict[str, dict[str, Any]] = {
-    "claude-opus-4-7": {
-        "display_name": "Opus 4.7",
-        "input": 15.00,
-        "output": 75.00,
-        "cache_write": 18.75,
-        "cache_read": 1.50,
-    },
-    "claude-sonnet-4-6": {
-        "display_name": "Sonnet 4.6",
-        "input": 3.00,
-        "output": 15.00,
-        "cache_write": 3.75,
-        "cache_read": 0.30,
-    },
-    "claude-haiku-4-5-20251001": {
-        "display_name": "Haiku 4.5",
-        "input": 1.00,
-        "output": 5.00,
-        "cache_write": 1.25,
-        "cache_read": 0.10,
-    },
-}
-
-DEFAULT_MODEL = "claude-sonnet-4-6"
+from .ai.registry import MODEL_REGISTRY, available_models as _registry_available_models
+from .ai.registry import cheapest_model, is_known_model as _is_known_model
 
 
 def _now_iso() -> str:
@@ -58,52 +30,59 @@ def _ensure_schema() -> None:
 
 
 def is_known_model(model: str) -> bool:
-    return model in MODEL_PRICES
+    return _is_known_model(model)
 
 
 def available_models() -> list[dict]:
     """For the Settings dropdown. Frontend consumes this verbatim."""
-    return [
-        {
-            "id": mid,
-            "display_name": price["display_name"],
-            "input_per_mtok": price["input"],
-            "output_per_mtok": price["output"],
-        }
-        for mid, price in MODEL_PRICES.items()
-    ]
+    return _registry_available_models()
 
 
 def compute_cost_usd(model: str, usage: dict) -> float:
     """Compute the dollar cost of one call from token counts. Falls back to
-    Sonnet rates for unknown models so we still record a (best-effort) row."""
-    price = MODEL_PRICES.get(model) or MODEL_PRICES[DEFAULT_MODEL]
+    the cheapest registered model's rates for unknown ids so we still
+    record a (best-effort) row."""
+    info = MODEL_REGISTRY.get(model) or cheapest_model()
     input_t = int(usage.get("input_tokens") or 0)
     output_t = int(usage.get("output_tokens") or 0)
     cache_w = int(usage.get("cache_creation_input_tokens") or 0)
     cache_r = int(usage.get("cache_read_input_tokens") or 0)
+    cache_w_rate = info.cache_write_per_mtok or 0.0
+    cache_r_rate = info.cache_read_per_mtok or 0.0
     return (
-        input_t * price["input"]
-        + output_t * price["output"]
-        + cache_w * price["cache_write"]
-        + cache_r * price["cache_read"]
+        input_t * info.input_per_mtok
+        + output_t * info.output_per_mtok
+        + cache_w * cache_w_rate
+        + cache_r * cache_r_rate
     ) / 1_000_000.0
 
 
 def _usage_to_dict(usage: Any) -> dict:
-    """Accept either an Anthropic `Usage` object or a plain dict."""
+    """Accept either an object with token attrs (e.g. LiteLLM's Usage) or a
+    plain dict. Tolerant of missing cache fields."""
     if usage is None:
         return {}
     if isinstance(usage, dict):
         return usage
     out = {}
-    for f in (
-        "input_tokens",
-        "output_tokens",
-        "cache_creation_input_tokens",
-        "cache_read_input_tokens",
-    ):
-        out[f] = getattr(usage, f, 0) or 0
+    # LiteLLM uses prompt_tokens/completion_tokens; older Anthropic-style
+    # code used input_tokens/output_tokens. Accept either.
+    out["input_tokens"] = (
+        getattr(usage, "input_tokens", None)
+        or getattr(usage, "prompt_tokens", 0)
+        or 0
+    )
+    out["output_tokens"] = (
+        getattr(usage, "output_tokens", None)
+        or getattr(usage, "completion_tokens", 0)
+        or 0
+    )
+    out["cache_creation_input_tokens"] = (
+        getattr(usage, "cache_creation_input_tokens", 0) or 0
+    )
+    out["cache_read_input_tokens"] = (
+        getattr(usage, "cache_read_input_tokens", 0) or 0
+    )
     return out
 
 
@@ -166,12 +145,3 @@ def spent_for_session_local_usd(session_id: int) -> float:
             (session_id,),
         ).fetchone()
     return float(row["total"] or 0.0)
-
-
-def earliest_recorded_at() -> str | None:
-    _ensure_schema()
-    with connect() as conn:
-        row = conn.execute(
-            "SELECT MIN(created_at) AS earliest FROM ai_usage"
-        ).fetchone()
-    return row["earliest"] if row and row["earliest"] else None

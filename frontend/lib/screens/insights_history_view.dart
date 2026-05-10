@@ -171,7 +171,6 @@ class _SessionTile extends StatelessWidget {
                       if (session.spentUsd > 0)
                         AiSpendChip.compact(
                           amountUsd: session.spentUsd,
-                          isEstimate: true,
                         ),
                     ],
                   ),

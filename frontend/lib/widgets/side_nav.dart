@@ -11,7 +11,6 @@ class SideNav extends StatelessWidget {
     required this.cycleLabel,
     required this.cycleLabels,
     required this.onCycleChange,
-    required this.showInsights,
     required this.onOpenAccount,
   });
 
@@ -20,12 +19,11 @@ class SideNav extends StatelessWidget {
   final String cycleLabel;
   final List<String> cycleLabels;
   final ValueChanged<String> onCycleChange;
-  final bool showInsights;
   final VoidCallback onOpenAccount;
 
   // Tab indices are stable across the app: 0=Categories, 1=Expenses,
-  // 2=Insights. We just hide the third row when AI is off; the
-  // index→screen mapping in AppShell never shifts.
+  // 2=Insights. All three are always rendered — when AI is off, the
+  // Insights screen itself renders an "enable AI" promo instead of the chat.
   static const _items = [
     (icon: 'grid', label: 'Categories'),
     (icon: 'expenses', label: 'Expenses'),
@@ -35,7 +33,7 @@ class SideNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final visibleCount = showInsights ? _items.length : _items.length - 1;
+    final visibleCount = _items.length;
     return Container(
       width: 220,
       decoration: BoxDecoration(

@@ -2,47 +2,37 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// Pill-shaped readout of an AI spend amount in USD.
+/// Pill-shaped readout of an AI spend amount in USD. Always shown with a
+/// leading `~` (compact) or trailing `(est.)` (detailed) — the figure is
+/// estimated from token usage × the selected model's published per-MTok
+/// price, never the authoritative billed amount.
 ///
 /// Two flavours:
-///   * [AiSpendChip.compact] — just `$X.XX` (with a leading `~` when the
-///     value is locally estimated rather than reported by Anthropic's
-///     Admin API). Used in the side nav / mobile settings row.
-///   * [AiSpendChip.detailed] — `$X.XX <label>`, optionally with an `(est.)`
-///     suffix when [isEstimate] is true. Used in the Account screen and
-///     the Insights chat header.
+///   * [AiSpendChip.compact] — `~$X.XX`. Used in the side nav / mobile
+///     settings row.
+///   * [AiSpendChip.detailed] — `$X.XX <label> (est.)`. Used in the Account
+///     screen and the Insights chat header.
 class AiSpendChip extends StatelessWidget {
   const AiSpendChip._({
     required this.amountUsd,
-    required this.isEstimate,
     required _Variant variant,
     this.label,
   }) : _variant = variant;
 
-  factory AiSpendChip.compact({
-    required double amountUsd,
-    required bool isEstimate,
-  }) =>
-      AiSpendChip._(
-        amountUsd: amountUsd,
-        isEstimate: isEstimate,
-        variant: _Variant.compact,
-      );
+  factory AiSpendChip.compact({required double amountUsd}) =>
+      AiSpendChip._(amountUsd: amountUsd, variant: _Variant.compact);
 
   factory AiSpendChip.detailed({
     required double amountUsd,
-    required bool isEstimate,
     required String label,
   }) =>
       AiSpendChip._(
         amountUsd: amountUsd,
-        isEstimate: isEstimate,
         variant: _Variant.detailed,
         label: label,
       );
 
   final double amountUsd;
-  final bool isEstimate;
   final _Variant _variant;
   final String? label;
 
@@ -51,14 +41,13 @@ class AiSpendChip extends StatelessWidget {
     final bt = context.bt;
     final amount = _formatUsd(amountUsd);
     final text = switch (_variant) {
-      _Variant.compact => isEstimate ? '~$amount' : amount,
-      _Variant.detailed =>
-        '$amount ${label ?? ''}${isEstimate ? ' (est.)' : ''}'.trim(),
+      _Variant.compact => '~$amount',
+      _Variant.detailed => '$amount ${label ?? ''} (est.)'.trim(),
     };
     return Tooltip(
-      message: isEstimate
-          ? 'Estimated from token usage and the price of the selected model.'
-          : 'Reported by the Anthropic Admin API.',
+      message:
+          'Estimated from token usage and the selected model\'s published '
+          'per-MTok price. Not the same as your provider bill.',
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
         decoration: BoxDecoration(

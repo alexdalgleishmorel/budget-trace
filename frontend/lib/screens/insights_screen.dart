@@ -4,6 +4,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/chat_message.dart';
 import '../services/chat_client.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ai_promo.dart';
 import '../widgets/ai_spend_chip.dart';
 import '../widgets/cat_icon.dart';
 import '../widgets/mobile_settings_icon.dart';
@@ -20,14 +21,21 @@ import 'insights_history_view.dart';
 class InsightsScreen extends StatefulWidget {
   const InsightsScreen({
     super.key,
+    required this.aiEnabled,
     required this.apiKeySet,
     required this.onOpenAccount,
     required this.onSpendChanged,
   });
 
-  /// Whether the user has stored an Anthropic API key. When false, the chat
-  /// input is disabled and the empty-state guides the user to Account
-  /// instead of letting them hit a 400 on submit.
+  /// Whether the master `ai` feature flag is on. When false, the tab is
+  /// still reachable but renders an [AiPromo] empty state instead of the
+  /// chat — the user enables AI in Account to unlock it.
+  final bool aiEnabled;
+
+  /// Whether the selected model's provider has an API key available
+  /// (stored on the user or present in env). When false (but AI is on),
+  /// the chat input is disabled and the empty-state guides the user to
+  /// Account instead of letting them hit a 400 on submit.
   final bool apiKeySet;
 
   /// Push the AccountScreen — used by the no-key empty state's CTA.
@@ -239,6 +247,17 @@ class _InsightsScreenState extends State<InsightsScreen> {
             ? const EdgeInsets.fromLTRB(28, 0, 28, 28)
             : const EdgeInsets.fromLTRB(18, 0, 18, 18);
 
+        if (!widget.aiEnabled) {
+          // AI off — short-circuit the whole tab to a green promo. The chat
+          // UI is meaningless without AI; the user opens Account to enable.
+          return SafeArea(
+            child: Padding(
+              padding: bodyPad,
+              child: AiPromo.insights(onOpenAccount: widget.onOpenAccount),
+            ),
+          );
+        }
+
         final body = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -323,7 +342,6 @@ class _Header extends StatelessWidget {
           if (showSpend) ...[
             AiSpendChip.detailed(
               amountUsd: sessionSpentUsd,
-              isEstimate: true,
               label: 'this chat',
             ),
             const SizedBox(width: 8),
@@ -343,7 +361,6 @@ class _Header extends StatelessWidget {
         if (showSpend) ...[
           AiSpendChip.detailed(
             amountUsd: sessionSpentUsd,
-            isEstimate: true,
             label: 'this chat',
           ),
           const SizedBox(width: 8),
@@ -470,7 +487,7 @@ class _ChatPanel extends StatelessWidget {
                       decoration: InputDecoration(
                         hintText: apiKeySet
                             ? 'Ask about your spending…'
-                            : 'Set an Anthropic API key in Account to chat',
+                            : 'Set an API key in Account to chat',
                         hintStyle: TextStyle(
                             color: bt.ink4, fontFamily: 'monospace'),
                         border: InputBorder.none,
@@ -519,7 +536,7 @@ class _NoApiKeyEmpty extends StatelessWidget {
                 size: 24, strokeWidth: 1.6, color: bt.ink4),
             const SizedBox(height: 14),
             Text(
-              'Anthropic API key needed',
+              'API key needed',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -530,8 +547,9 @@ class _NoApiKeyEmpty extends StatelessWidget {
             ConstrainedBox(
               constraints: const BoxConstraints(maxWidth: 360),
               child: Text(
-                'Insights talks to Claude. Add your key in Account, then come '
-                'back to chat about your spending.',
+                'Insights uses your selected AI model. Add an API key for '
+                'that model\'s provider in Account, then come back to chat '
+                'about your spending.',
                 style: TextStyle(fontSize: 12, color: bt.ink4, height: 1.5),
                 textAlign: TextAlign.center,
               ),

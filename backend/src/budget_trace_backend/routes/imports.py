@@ -12,7 +12,7 @@ from ..db import connect
 from ..importers.categorizer import categorize_rows
 from ..importers.common import insert_rows
 from ..importers.csv_parser import CsvParseError, parse_csv
-from ..services.anthropic_client import AiKeyMissing
+from ..services.ai.client import AiKeyMissing, UnsupportedContent
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -51,7 +51,7 @@ async def upload_transactions(
             )
         format_detected = "csv"
     else:
-        # Lazy import — keeps anthropic out of the import path for CSV-only users.
+        # Lazy import — keeps the litellm import out of the path for CSV-only users.
         from ..importers.ai_parser import UnsupportedFileType, parse_with_ai
         try:
             rows, errors, ai_usage = parse_with_ai(
@@ -64,6 +64,12 @@ async def upload_transactions(
             )
         except UnsupportedFileType as e:
             # Pre-API-call refusal — we never billed the user for this.
+            raise HTTPException(
+                status_code=400,
+                detail={"code": e.code, "message": str(e)},
+            )
+        except UnsupportedContent as e:
+            # Provider rejected the upload (e.g. PDF on an OpenAI model).
             raise HTTPException(
                 status_code=400,
                 detail={"code": e.code, "message": str(e)},

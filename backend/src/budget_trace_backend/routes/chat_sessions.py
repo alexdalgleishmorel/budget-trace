@@ -26,7 +26,7 @@ from ..models import (
     ChatTurn,
 )
 from ..services import chat_sessions as svc
-from ..services.anthropic_client import AiKeyMissing
+from ..services.ai.client import AiKeyMissing
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 

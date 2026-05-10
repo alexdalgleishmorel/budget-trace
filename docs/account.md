@@ -6,12 +6,12 @@ Single-user settings for the local-dev build. There's a real `users` table (id=1
 
 - `features` — JSON blob of feature flags. Today it's just `{ "ai": bool }`. The single master flag controls:
   - PDF / image / general AI parsing on `POST /transactions/import?parser=ai` (403 when off).
-  - Auto-categorize-on-import — every successful CSV or AI import runs the inserted rows through Claude via [`importers/categorizer.py`](../backend/src/budget_trace_backend/importers/categorizer.py).
+  - Auto-categorize-on-import — every successful CSV or AI import runs the inserted rows through the model via [`importers/categorizer.py`](../backend/src/budget_trace_backend/importers/categorizer.py).
   - The Insights chat (`POST /chat/sessions/{id}/messages` returns 403 when off; historical reads stay open).
-- `anthropic_api_key` — plaintext, optional. Read by [`services/anthropic_client.py::get_client()`](../backend/src/budget_trace_backend/services/anthropic_client.py); falls back to the `ANTHROPIC_API_KEY` env var.
-- `anthropic_admin_api_key` — plaintext, optional. The `sk-ant-admin-…` admin key, distinct from the regular workspace key. When set, the `/me` handler queries [Anthropic's `cost_report`](../backend/src/budget_trace_backend/services/anthropic_admin.py) and uses the returned figure as the authoritative `ai_spent_usd` instead of the locally-estimated token cost (60 s in-process cache to stay under Anthropic's polling limits).
-- `anthropic_model` — the Claude model id used for every AI call. `null` falls back to `ANTHROPIC_MODEL`, then the default `claude-sonnet-4-6`. Validated against `MODEL_PRICES` in [`services/ai_usage.py`](../backend/src/budget_trace_backend/services/ai_usage.py) so the spend chip always has a price to multiply against — `PATCH` rejects unknown ids with 422.
+- `selected_model` — a model id from [`services/ai/registry.py`](../backend/src/budget_trace_backend/services/ai/registry.py). Drives every AI call (chat, parser, auto-categorizer). `null` falls back to the `SELECTED_MODEL` env var, then the registry's `DEFAULT_MODEL`. Validated server-side; `PATCH` rejects unknown ids with 422.
 - `theme` — `system` | `light` | `dark`. Drives `MaterialApp.themeMode` in `main.dart`.
+
+Per-provider API keys are stored in a separate table — [`ai_provider_keys(user_id, provider, api_key)`](../backend/src/budget_trace_backend/db.py) — one row per provider (`anthropic`, `openai`, `google`, …). The model registry tells the runtime which provider's key to use for any given model. Each provider also accepts an env-var fallback: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (the names match each SDK's convention; LiteLLM uses them too).
 
 ## REST: `/me`
 
@@ -25,41 +25,51 @@ PATCH /me  { partial fields }   → MeOut
 {
   "features": { "ai": false },
   "theme": "system",
-  "anthropic_api_key_set": false,
-  "anthropic_admin_api_key_set": false,
-  "anthropic_model": "claude-sonnet-4-6",
-  "available_models": [
-    { "id": "claude-opus-4-7",          "display_name": "Opus 4.7",   "input_per_mtok": 15, "output_per_mtok": 75 },
-    { "id": "claude-sonnet-4-6",        "display_name": "Sonnet 4.6", "input_per_mtok":  3, "output_per_mtok": 15 },
-    { "id": "claude-haiku-4-5-20251001","display_name": "Haiku 4.5",  "input_per_mtok":  1, "output_per_mtok":  5 }
+  "providers": [
+    { "id": "anthropic", "display_name": "Anthropic", "env_var": "ANTHROPIC_API_KEY",
+      "api_key_set": false, "env_fallback": false },
+    { "id": "openai",    "display_name": "OpenAI",    "env_var": "OPENAI_API_KEY",
+      "api_key_set": false, "env_fallback": false },
+    { "id": "google",    "display_name": "Google",    "env_var": "GEMINI_API_KEY",
+      "api_key_set": false, "env_fallback": false }
   ],
-  "ai_spent_usd": 0.0,
-  "ai_spent_source": "estimated"
+  "selected_model": "claude-sonnet-4-6",
+  "selected_model_provider": "anthropic",
+  "selected_model_key_available": false,
+  "available_models": [
+    { "id": "claude-opus-4-7",   "provider": "anthropic", "display_name": "Opus 4.7",
+      "input_per_mtok": 15, "output_per_mtok": 75 },
+    { "id": "claude-sonnet-4-6", "provider": "anthropic", "display_name": "Sonnet 4.6",
+      "input_per_mtok": 3,  "output_per_mtok": 15 },
+    { "id": "gpt-4o",            "provider": "openai",    "display_name": "GPT-4o",
+      "input_per_mtok": 2.5, "output_per_mtok": 10 },
+    { "id": "gemini-2.5-flash",  "provider": "google",    "display_name": "Gemini 2.5 Flash",
+      "input_per_mtok": 0.3, "output_per_mtok": 2.5 }
+    /* …registry continues */
+  ],
+  "ai_spent_usd": 0.0
 }
 ```
 
-Key values themselves are **never** returned — only the `*_set` booleans. To set a key, `PATCH /me` with `{"anthropic_api_key": "sk-ant-…"}` (or `anthropic_admin_api_key`). To clear, send `null`. Empty string is a 422 — pass `null` instead.
+Key values themselves are **never** returned — only `api_key_set` per provider, plus `env_fallback` to indicate the matching env var is present in the process.
 
-To switch model, `PATCH /me` with `{"anthropic_model": "claude-haiku-4-5-20251001"}`. To reset to env/default, send `null`. Any value not in `available_models` is a 422.
+To set or clear a key, `PATCH /me` with `{"provider_keys": {"anthropic": "sk-ant-…"}}`. `null` clears that provider's row; an empty string is a 422 — pass `null` instead. The dict is partial: only the providers you include get changed.
 
-`ai_spent_usd` is the cumulative dollar cost of every Anthropic call this app has made. Source is reported via `ai_spent_source`:
-- `"estimated"` — locally summed from token usage × the price table in [`services/ai_usage.py`](../backend/src/budget_trace_backend/services/ai_usage.py).
-- `"authoritative"` — pulled from Anthropic's `cost_report` (admin key set, fetch succeeded, window = `[earliest local-recorded call, now]`).
+To switch model, `PATCH /me` with `{"selected_model": "gpt-4o"}`. `null` resets to env/default. Any value not in `available_models` is a 422. The route does **not** require a stored key for the picked model's provider — that's surfaced via `selected_model_key_available: false` so the UI can warn but the user can still save (handy when they're about to paste the key next).
 
-Anthropic does **not** expose a "remaining balance" endpoint. The chip is therefore always a **spend** readout, never a balance.
+`ai_spent_usd` is the cumulative locally-estimated cost of every AI call this app has made. Computed at insert time as `tokens × selected model's per-MTok price` and snapshotted into [`ai_usage`](../backend/src/budget_trace_backend/db.py). **This is an estimate, not your provider bill** — for the authoritative figure, check each provider's dashboard.
 
 `PATCH` is partial: omit a field to leave it unchanged. `features` is a partial dict — sending `{"features": {"ai": true}}` flips just `ai` and leaves any future flags alone.
 
 ## UI: the Account screen
 
-[frontend/lib/screens/account_screen.dart](../frontend/lib/screens/account_screen.dart). Six sections:
+[frontend/lib/screens/account_screen.dart](../frontend/lib/screens/account_screen.dart). Two cards:
 
-1. **Features** — a single switch for "AI features."
-2. **Anthropic API Key** — masked text field, show/hide toggle, Save + Clear.
-3. **AI Spend** — read-only chip showing cumulative USD spent on Anthropic, with a one-line note disclosing whether the figure is estimated or admin-API-authoritative.
-4. **Model** — dropdown built from `available_models`; each item shows the model's per-MTok input/output rates. "Reset to default" sends `anthropic_model: null`.
-5. **Anthropic Admin API key** — same masked-input pattern as the regular key. When set, the spend total flips to authoritative.
-6. **Appearance** — three-segment control: System / Light / Dark.
+1. **Appearance** — three-segment control: System / Light / Dark. Top of the screen.
+2. **AI features** — collapsible card. Tap the header to expand. The first row inside is the master "AI features" switch; when it's on, the card also reveals:
+   - **API keys** — one row per provider in `me.providers`, fully data-driven. Each row has a label, a status pill (Stored / Env / Not set), a masked text field with show/hide, and Save + Clear actions. Adding a provider on the backend automatically yields a new row here.
+   - **AI Spend** — read-only chip showing cumulative USD spent on AI, with the canonical disclaimer that the figure is estimated from token usage and the selected model's published per-MTok price (not the same as your provider bill).
+   - **Model** — dropdown built from `available_models`; each item shows `Provider — Model Name` plus per-MTok input/output rates. When the selected model's provider has no key, an inline warning appears beneath the dropdown. "Reset to default" sends `selected_model: null`.
 
 Every control bubbles its update through `MeClient.update()` immediately and bubbles the resulting `Me` back up to `BudgetTraceApp` via `onMeChanged`. That triggers `MaterialApp.themeMode` to re-resolve, the Insights tab to show/hide, the Dropzone's AI toggle to appear/disappear, and the global AI-spend chip in the upload Dropzone to refresh — all in one pass.
 
@@ -71,7 +81,11 @@ Open the screen via:
 
 ## Env override
 
-`BUDGET_TRACE_FEATURES=ai` still works as a force-on for the running process; it wins over the DB on the read path. Useful for tests / CI / reproducible dev shells. No env override exists for the API key beyond the existing `ANTHROPIC_API_KEY` — that's already the documented fallback.
+`BUDGET_TRACE_FEATURES=ai` still works as a force-on for the running process; it wins over the DB on the read path. Useful for tests / CI / reproducible dev shells.
+
+Each provider has a documented env-var fallback for its API key (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY`). When the corresponding env var is set, the `/me` response surfaces it via `env_fallback: true` and the Account screen renders the "Env" status pill. A stored key overrides the env var.
+
+`SELECTED_MODEL` overrides the default model when no row-level `selected_model` is stored.
 
 ## Auth — TODO
 
@@ -84,7 +98,7 @@ When auth lands:
 
 1. Add a session/JWT layer.
 2. Replace the `user_id=1` defaults with a `user_id` derived from the request session.
-3. Audit every other call site that reaches into `users` — there are no others today, but `services/anthropic_client.py::get_client()` reads `get_me()` without a user_id, which will need threading.
-4. Encrypt `anthropic_api_key` at rest. Until then, the Account screen carries a **plaintext-storage warning banner** so it's not silently surprising.
+3. Audit every other call site that reaches into `users` — there are no others today, but [`services/ai/client.py::_resolve_key()`](../backend/src/budget_trace_backend/services/ai/client.py) reads `get_me()` without a user_id, which will need threading.
+4. Encrypt the `ai_provider_keys.api_key` column at rest. Until then, the Account screen carries a **plaintext-storage warning banner** so it's not silently surprising.
 
 The route shapes (`/me`) and the frontend `Me` model are auth-agnostic and won't change.

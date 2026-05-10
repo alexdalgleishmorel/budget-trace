@@ -6,13 +6,13 @@ flag is on. Two-stage pipeline:
   1. **Pre-apply from history** — query existing
      `(merchant → category_id)` pairs from the `transactions` table
      (most-recent assignment wins on collision). Any incoming row whose
-     merchant is already known is categorized immediately, no Claude call
+     merchant is already known is categorized immediately, no AI call
      needed. This is how manual user fixes silently train future imports.
 
-  2. **AI fallback** — send only the truly-unknown merchants to Claude with
-     the leaf category list. The model emits an `assign_categories` tool
-     call mapping `transaction_id → category_path`. Output is deduped by
-     merchant (first assignment wins on per-batch conflicts) and applied
+  2. **AI fallback** — send only the truly-unknown merchants to the model
+     with the leaf category list. The model emits an `assign_categories`
+     tool call mapping `transaction_id → category_path`. Output is deduped
+     by merchant (first assignment wins on per-batch conflicts) and applied
      via the same per-merchant bulk UPDATE as stage 1.
 
 If every input row is matched in stage 1, stage 2 is skipped entirely —
@@ -37,37 +37,40 @@ import logging
 
 from ..db import category_id_for_path, connect, fetch_category_tree
 from ..services import ai_usage as ai_usage_svc
-from ..services.anthropic_client import AiKeyMissing, get_client, get_model
+from ..services.ai.client import AiKeyMissing, chat as ai_chat, get_selected_model
 
 log = logging.getLogger(__name__)
 
 
 ASSIGN_TOOL = {
-    "name": "assign_categories",
-    "description": (
-        "Return a category assignment for every transaction you can confidently "
-        "place. Omit transactions you're unsure about — they'll stay "
-        "uncategorized for the user to review."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "assignments": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "transaction_id": {"type": "integer"},
-                        "category_path": {
-                            "type": "string",
-                            "description": "Must be one of the leaf paths supplied in the prompt.",
+    "type": "function",
+    "function": {
+        "name": "assign_categories",
+        "description": (
+            "Return a category assignment for every transaction you can confidently "
+            "place. Omit transactions you're unsure about — they'll stay "
+            "uncategorized for the user to review."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "assignments": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "transaction_id": {"type": "integer"},
+                            "category_path": {
+                                "type": "string",
+                                "description": "Must be one of the leaf paths supplied in the prompt.",
+                            },
                         },
+                        "required": ["transaction_id", "category_path"],
                     },
-                    "required": ["transaction_id", "category_path"],
                 },
             },
+            "required": ["assignments"],
         },
-        "required": ["assignments"],
     },
 }
 
@@ -139,7 +142,7 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
 
         # ── Stage 2: AI for the unknowns ──────────────────────────────────
         # Only the rows whose merchants are NOT in the history get sent to
-        # Claude. If the set is empty, skip the API call entirely.
+        # the model. If the set is empty, skip the API call entirely.
         unknown_rows = [
             r for r in rows if r["merchant"] not in merchant_to_cat_id
         ]
@@ -160,17 +163,16 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
             )
 
             try:
-                client = get_client()
-                model = get_model()
-                resp = client.messages.create(
+                model = get_selected_model()
+                resp = ai_chat(
                     model=model,
-                    max_tokens=4096,
                     system=SYSTEM_PROMPT,
-                    tools=[ASSIGN_TOOL],
                     messages=[{"role": "user", "content": user_text}],
+                    tools=[ASSIGN_TOOL],
+                    max_tokens=4096,
                 )
                 ai_usage_svc.record_usage(
-                    source="auto_categorize", model=model, usage=resp.usage,
+                    source="auto_categorize", model=model, usage=resp.get("usage") or {},
                 )
             except AiKeyMissing as e:
                 # History pre-apply still happens; only the unknowns are lost.
@@ -209,10 +211,16 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
             # invariant as the manual cascade).
             valid_paths = {n["path"] for n in leaves}
             requested_ids = {r["id"] for r in unknown_rows}
-            for block in resp.content:
-                if getattr(block, "type", None) != "tool_use" or block.name != "assign_categories":
+            for tc in resp.get("tool_calls") or []:
+                if tc.get("name") != "assign_categories":
                     continue
-                for raw in (block.input or {}).get("assignments", []):
+                try:
+                    args = json.loads(tc.get("arguments_json", "") or "{}")
+                except json.JSONDecodeError:
+                    args = {}
+                if not isinstance(args, dict):
+                    args = {}
+                for raw in (args.get("assignments") or []):
                     try:
                         txn_id = int(raw["transaction_id"])
                         path = str(raw["category_path"])
@@ -229,9 +237,10 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
                     merchant_to_cat_id[merchant] = cat_id
                 break  # only honour the first call
 
+            usage_dict = resp.get("usage") or {}
             ai_usage = {
-                "input_tokens": getattr(resp.usage, "input_tokens", 0),
-                "output_tokens": getattr(resp.usage, "output_tokens", 0),
+                "input_tokens": int(usage_dict.get("input_tokens") or 0),
+                "output_tokens": int(usage_dict.get("output_tokens") or 0),
             }
 
         # ── Stage 3: bulk UPDATE per merchant ─────────────────────────────

@@ -4,7 +4,7 @@ This is the document to read before touching the chat flow. It captures *why* th
 
 ## Three tool surfaces, on purpose
 
-The orchestrator gives Claude **MCP read tools + MCP write tools (gated) + one inline output tool**:
+The orchestrator gives the model **MCP read tools + MCP write tools (gated) + one inline output tool**:
 
 ### Read tools (always available)
 
@@ -46,13 +46,13 @@ Categories use **paths** (`"Living / Grocery"`) as the AI-facing identifier; tra
 
 ## The contract
 
-System prompt ([chat.py](../backend/src/budget_trace_backend/chat.py)) tells Claude:
+System prompt ([chat.py](../backend/src/budget_trace_backend/chat.py)) tells the model:
 
 > Your final action MUST be exactly one call to `present_to_user`. Do NOT emit text outside of that tool call. Use a `chart` argument only when a time-series visualisation would meaningfully strengthen your answer.
 
-The orchestrator loop is dumb: dispatch tool calls, append `tool_result`s, send back to Claude, repeat. The **only exit conditions** are:
-1. Claude calls `present_to_user` → those args become the HTTP response.
-2. Claude emits text without any tool call → fallback message returned.
+The orchestrator loop is dumb: dispatch tool calls, append `tool` messages, send back, repeat. The **only exit conditions** are:
+1. The model calls `present_to_user` → those args become the HTTP response.
+2. The model emits text without any tool call → fallback message returned.
 3. Iteration cap reached (`MAX_TOOL_ITERATIONS = 12`) → fallback message returned.
 
 This is stricter than letting the model reply with freeform text. It guarantees the response is structured and avoids the "AI says it ran a query but actually hallucinated the numbers" failure mode.
@@ -93,15 +93,17 @@ The orchestrator may run several tool-call rounds before getting to `present_to_
 
 ## Cost tracking
 
-Every Anthropic call (chat, AI parser on import, auto-categorize on import) ends in [`services/ai_usage.py::record_usage()`](../backend/src/budget_trace_backend/services/ai_usage.py), which writes one row to the `ai_usage` table with the model, token counts, and a `cost_usd` snapshot computed from `MODEL_PRICES`. Chat calls also stamp `chat_session_id` so per-chat spend can be summed for the Insights header chip and the history list.
+Every AI call (chat, AI parser on import, auto-categorize on import) ends in [`services/ai_usage.py::record_usage()`](../backend/src/budget_trace_backend/services/ai_usage.py), which writes one row to the `ai_usage` table with the model, token counts, and a `cost_usd` snapshot computed from the model registry. Chat calls also stamp `chat_session_id` so per-chat spend can be summed for the Insights header chip and the history list.
 
-The chat orchestrator sums usage across every iteration of the tool-use loop and persists a single row per user prompt (rather than one per `messages.create`). `ChatResponse` returns both `cost_usd` (this turn) and `session_spent_usd` (running total for the whole session) so the frontend can update without a second round-trip. `GET /chat/sessions` and `GET /chat/sessions/{id}` both surface `spent_usd` per session via a `LEFT JOIN` against `ai_usage`.
+The chat orchestrator sums usage across every iteration of the tool-use loop and persists a single row per user prompt (rather than one per `chat()` call). `ChatResponse` returns both `cost_usd` (this turn) and `session_spent_usd` (running total for the whole session) so the frontend can update without a second round-trip. `GET /chat/sessions` and `GET /chat/sessions/{id}` both surface `spent_usd` per session via a `LEFT JOIN` against `ai_usage`.
 
-Pricing lives in `MODEL_PRICES`. To add a new model: add an entry there, restart the backend, and it shows up in `available_models` for the Settings dropdown automatically.
+Cost is **always estimated** — `tokens × the selected model's published per-MTok price`. There is no authoritative-billing path; the chip is explicit about that. To add a new model: add an entry to `MODEL_REGISTRY` in [`services/ai/registry.py`](../backend/src/budget_trace_backend/services/ai/registry.py), restart the backend, and it shows up in `available_models` for the Settings dropdown automatically.
 
 ## Model selection
 
-The `anthropic_model` column on the user row, set via `PATCH /me`, overrides the `ANTHROPIC_MODEL` env var which in turn overrides the `claude-sonnet-4-6` default. Resolution lives in [`services/anthropic_client.py::get_model()`](../backend/src/budget_trace_backend/services/anthropic_client.py) — a single chokepoint that feeds chat, AI parser, and auto-categorizer. To switch models, change the column. `PATCH /me` validates the value against `MODEL_PRICES` so we never select a model whose cost we can't compute.
+The `selected_model` column on the user row, set via `PATCH /me`, overrides the `SELECTED_MODEL` env var which in turn overrides the registry's `DEFAULT_MODEL`. Resolution lives in [`services/ai/client.py::get_selected_model()`](../backend/src/budget_trace_backend/services/ai/client.py) — a single chokepoint that feeds chat, AI parser, and auto-categorizer. The same module's `chat()` looks up the model's provider in `MODEL_REGISTRY`, picks the matching API key (`ai_provider_keys` row first, env-var fallback second), prefixes the model id for LiteLLM (e.g. `anthropic/claude-sonnet-4-6`), and dispatches one `litellm.completion()` call. LiteLLM handles per-provider request/response translation.
+
+`PATCH /me` validates the value against `MODEL_REGISTRY` so we never select a model whose cost we can't compute. It does **not** require a stored key for the picked model's provider — `selected_model_key_available` in `MeOut` lets the UI warn but the user can still save the choice ahead of pasting the key.
 
 ## Common pitfalls
 

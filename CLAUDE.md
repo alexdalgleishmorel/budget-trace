@@ -21,7 +21,7 @@ The architecture is documented in [`docs/`](docs/README.md). Before changing any
 Two halves:
 
 - **`frontend/`** — Flutter app, three tabs (Categories, Expenses, Insights). All three talk to the Python backend; there is no in-memory mock data.
-- **`backend/`** — Python FastAPI app. Owns the SQLite store (seeded with 12 months of mock transactions), exposes a REST API for Categories + Transactions + `/me` settings, runs the chat orchestrator that calls Anthropic, and hosts an MCP server (read + write tools) that the chat AI uses for data access and mutations. The whole AI surface (chat, AI parser, auto-categorize-on-import) is gated behind a single `ai` flag toggled via the Account screen.
+- **`backend/`** — Python FastAPI app. Owns the SQLite store (seeded with 12 months of mock transactions), exposes a REST API for Categories + Transactions + `/me` settings, runs the chat orchestrator that talks to the selected AI model via LiteLLM (Anthropic, OpenAI, and Google Gemini supported today), and hosts an MCP server (read + write tools) that the chat AI uses for data access and mutations. The whole AI surface (chat, AI parser, auto-categorize-on-import) is gated behind a single `ai` flag toggled via the Account screen.
 
 CSV upload is always available. PDF / screenshot / etc. are handled by the AI parser when `ai` is enabled, and every successful import also runs the rows through an auto-categorizer when `ai` is on. See [`docs/architecture.md`](docs/architecture.md) for the diagram and [`docs/upload.md`](docs/upload.md) for the upload contract.
 
@@ -47,7 +47,7 @@ uvicorn budget_trace_backend.main:app --reload --port 8000
 pytest                                                     # data-tool tests
 ```
 
-An Anthropic API key is needed for any AI surface (chat, PDF/AI parser, auto-categorize). It can be set via the Account screen (`PATCH /me`, persisted in SQLite) or the `ANTHROPIC_API_KEY` env var (fallback). The seed and CSV-only flows don't need a key.
+An AI provider API key is needed for any AI surface (chat, PDF/AI parser, auto-categorize). Keys are configured per-provider via the Account screen (`PATCH /me { provider_keys }`, persisted in `ai_provider_keys` in SQLite) or the matching env var fallback (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`). The seed and CSV-only flows don't need a key.
 
 ## Frontend architecture (quick reference)
 

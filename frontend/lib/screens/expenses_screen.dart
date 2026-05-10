@@ -26,7 +26,6 @@ class ExpensesScreen extends StatefulWidget {
     required this.client,
     required this.aiEnabled,
     required this.aiSpentUsd,
-    required this.aiSpentEstimated,
     required this.onChanged,
     required this.cycleLabels,
     required this.onCycleChange,
@@ -39,11 +38,10 @@ class ExpensesScreen extends StatefulWidget {
   final TransactionsClient client;
   final bool aiEnabled;
 
-  /// Total dollars spent on Anthropic so far. Surfaced as a metric inside
+  /// Estimated cumulative AI spend so far. Surfaced as a metric inside
   /// the upload [Dropzone] when AI parsing is on, so the user sees running
   /// cost adjacent to the only other AI surface besides the chat.
   final double aiSpentUsd;
-  final bool aiSpentEstimated;
 
   final Future<void> Function() onChanged;
   final List<String> cycleLabels;
@@ -145,8 +143,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             onImported: widget.onChanged,
             aiEnabled: widget.aiEnabled,
             aiSpentUsd: widget.aiSpentUsd,
-            aiSpentEstimated: widget.aiSpentEstimated,
             onOpenCategories: widget.onOpenCategories,
+            onOpenAccount: widget.onOpenAccount,
           );
         }
         return _MobileExpenses(
@@ -166,7 +164,6 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           onImported: widget.onChanged,
           aiEnabled: widget.aiEnabled,
           aiSpentUsd: widget.aiSpentUsd,
-          aiSpentEstimated: widget.aiSpentEstimated,
           onOpenCategories: widget.onOpenCategories,
           onOpenAccount: widget.onOpenAccount,
         );
@@ -195,7 +192,6 @@ class _MobileExpenses extends StatelessWidget {
     required this.onImported,
     required this.aiEnabled,
     required this.aiSpentUsd,
-    required this.aiSpentEstimated,
     required this.onOpenCategories,
     required this.onOpenAccount,
   });
@@ -218,7 +214,6 @@ class _MobileExpenses extends StatelessWidget {
   final VoidCallback onOpenAccount;
   final bool aiEnabled;
   final double aiSpentUsd;
-  final bool aiSpentEstimated;
 
   @override
   Widget build(BuildContext context) {
@@ -277,7 +272,7 @@ class _MobileExpenses extends StatelessWidget {
                     onImported: onImported,
                     aiEnabled: aiEnabled,
                     aiSpentUsd: aiSpentUsd,
-                    aiSpentEstimated: aiSpentEstimated,
+                    onOpenAccount: onOpenAccount,
                   ),
                   if (unknown.isEmpty && known.isEmpty) ...[
                     const SizedBox(height: 18),
@@ -374,8 +369,8 @@ class _DesktopExpenses extends StatefulWidget {
     required this.onImported,
     required this.aiEnabled,
     required this.aiSpentUsd,
-    required this.aiSpentEstimated,
     required this.onOpenCategories,
+    required this.onOpenAccount,
   });
 
   final BudgetCycle cycle;
@@ -388,8 +383,8 @@ class _DesktopExpenses extends StatefulWidget {
   final Future<void> Function() onImported;
   final bool aiEnabled;
   final double aiSpentUsd;
-  final bool aiSpentEstimated;
   final VoidCallback onOpenCategories;
+  final VoidCallback onOpenAccount;
 
   @override
   State<_DesktopExpenses> createState() => _DesktopExpensesState();
@@ -497,7 +492,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                       onImported: widget.onImported,
                       aiEnabled: widget.aiEnabled,
                       aiSpentUsd: widget.aiSpentUsd,
-                      aiSpentEstimated: widget.aiSpentEstimated,
+                      onOpenAccount: widget.onOpenAccount,
                     ),
                     const SizedBox(height: 18),
                     Row(

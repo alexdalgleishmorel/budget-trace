@@ -1,6 +1,6 @@
 # Backend
 
-Python FastAPI app. Owns the SQLite expense store, the MCP tool surface, and the chat orchestrator that talks to the Anthropic API.
+Python FastAPI app. Owns the SQLite expense store, the MCP tool surface, and the chat orchestrator that talks to the selected AI provider (Anthropic, OpenAI, or Google Gemini today) via LiteLLM.
 
 ## Run it
 
@@ -11,9 +11,12 @@ python3 -m venv .venv
 . .venv/bin/activate
 pip install -e '.[dev]'
 
-# Optional — only needed if you skip setting the key via the in-app
-# Account screen. The DB-stored key wins over this env var.
+# Optional — only needed if you skip setting keys via the in-app
+# Account screen. DB-stored keys win over these env vars. Set whichever
+# providers you'll use; the default model is Anthropic Sonnet 4.6.
 export ANTHROPIC_API_KEY=sk-ant-...
+export OPENAI_API_KEY=sk-...
+export GEMINI_API_KEY=...
 
 uvicorn budget_trace_backend.main:app --reload --port 8000
 # First boot creates data/budget_trace.db with the schema, the symbolic
@@ -27,8 +30,10 @@ Health check: `curl http://localhost:8000/healthz`.
 
 | Name | Default | What it does |
 |------|---------|--------------|
-| `ANTHROPIC_API_KEY` | optional | Fallback when no key is stored on the user (set via Account → API key, or `PATCH /me`). Required for any AI surface (chat, AI parser, auto-categorize) when the user-stored key is empty. |
-| `ANTHROPIC_MODEL` | `claude-sonnet-4-6` | Override the model used in the chat orchestrator, the AI parser, and the auto-categorizer. |
+| `ANTHROPIC_API_KEY` | optional | Fallback when no Anthropic key is stored via `PATCH /me`. Required for any Anthropic model when the stored key is empty. |
+| `OPENAI_API_KEY` | optional | Fallback when no OpenAI key is stored. Required for any OpenAI model when the stored key is empty. |
+| `GEMINI_API_KEY` | optional | Fallback when no Google key is stored. Required for any Gemini model when the stored key is empty. |
+| `SELECTED_MODEL` | `claude-sonnet-4-6` | Override the model used by the chat orchestrator, AI parser, and auto-categorizer. Anything in the registry is fair game (e.g. `gpt-4o`, `gemini-2.5-flash`). |
 | `BUDGET_TRACE_DB` | `<repo>/backend/data/budget_trace.db` | Override the SQLite path (used by tests). |
 | `BUDGET_TRACE_FEATURES` | unset | Comma-separated flag names (just `ai` today) that force a flag on for the running process. Wins over the DB. Useful for tests and CI. |
 
@@ -41,15 +46,18 @@ backend/
   src/budget_trace_backend/
     __init__.py
     main.py                            # FastAPI app, /chat, /healthz, mounts routers
-    chat.py                            # orchestrator (Anthropic loop, present_to_user)
+    chat.py                            # orchestrator (LiteLLM tool-call loop, present_to_user)
     mcp_server.py                      # READ_TOOLS + WRITE_TOOLS + stdio MCP entry point
     db.py                              # sqlite3 connect + CATEGORY_PATHS_CTE + schema
     seed.py                            # 12-month seasonal mock generator
-    features.py                        # per-user settings (flags, theme, API key)
+    features.py                        # per-user settings (flags, theme, selected model, provider keys)
     help_text.py                       # /chat/help markdown (introspects tool registries)
     models.py                          # pydantic ChartSpec / ChatRequest / ChatResponse
     services/
-      anthropic_client.py              # get_client() / get_model() — single key + model resolver
+      ai/
+        registry.py                    # PROVIDERS + MODEL_REGISTRY + pricing
+        client.py                      # chat() — key resolution + LiteLLM dispatch
+      ai_usage.py                      # per-call cost snapshot + cumulative spend reads
       categories.py                    # category mutation services (used by routes + MCP)
       chat_sessions.py                 # session + message persistence
       transactions.py                  # transaction mutation services
@@ -58,11 +66,11 @@ backend/
       chat_sessions.py                 # /chat/sessions, /chat/help (gated by `ai`)
       transactions.py                  # CRUD + bulk_rename
       imports.py                       # POST /transactions/import (CSV + AI + auto-categorize)
-      me.py                            # GET/PATCH /me — features, theme, API key
+      me.py                            # GET/PATCH /me — features, theme, model, provider keys
     importers/
       common.py                        # ImportedRow, source_hash, insert_rows
       csv_parser.py                    # CSV header detection + parsing
-      ai_parser.py                     # Anthropic-driven parsing (gated by `ai`)
+      ai_parser.py                     # AI-driven parsing (gated by `ai`)
       categorizer.py                   # post-import auto-categorize (gated by `ai`)
   data/
     budget_trace.db                    # gitignored; created by seed
@@ -127,7 +135,7 @@ The same `TOOL_FUNCTIONS` dictionary backs both the stdio server and the in-proc
 pytest                    # 9 tests, all hit a tmp DB seeded fresh per module
 ```
 
-Tests use `BUDGET_TRACE_DB` to redirect the connection to a tmp path, then call the seed + tool functions directly. They don't touch the Anthropic API.
+Tests use `BUDGET_TRACE_DB` to redirect the connection to a tmp path, then call the seed + tool functions directly. They monkeypatch `services.ai.client.chat` rather than hitting any provider's API.
 
 ## Ports
 

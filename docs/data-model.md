@@ -12,13 +12,17 @@ erDiagram
     categories ||--o{ transactions   : "category_id (NULL = uncategorised)"
     chat_sessions ||--o{ chat_messages : "session_id (ON DELETE CASCADE)"
     chat_sessions ||--o{ ai_usage      : "chat_session_id (ON DELETE SET NULL)"
+    users ||--o{ ai_provider_keys : "user_id (ON DELETE CASCADE)"
     users {
         INTEGER id PK
-        TEXT    features                JSON_blob_ai_bool
-        TEXT    anthropic_api_key       plaintext_optional
-        TEXT    anthropic_admin_api_key plaintext_optional_admin_key
-        TEXT    anthropic_model         model_id_NULL_falls_back_to_env_then_default
-        TEXT    theme                   system_light_dark
+        TEXT    features         JSON_blob_ai_bool
+        TEXT    theme            system_light_dark
+        TEXT    selected_model   model_id_NULL_falls_back_to_env_then_default
+    }
+    ai_provider_keys {
+        INTEGER user_id PK
+        TEXT    provider PK "anthropic|openai|google|..."
+        TEXT    api_key      plaintext
     }
     categories {
         INTEGER id PK
@@ -97,18 +101,25 @@ CREATE UNIQUE INDEX idx_txn_source_hash
     ON transactions(source_hash) WHERE source_hash IS NOT NULL;
 
 -- Per-user settings. Single-user dev today: id=1; auth lands later.
--- `features` is a JSON blob ({"ai": true}). `anthropic_api_key` is plaintext
--- (acceptable for local dev). `theme` is one of 'system' | 'light' | 'dark'.
--- `anthropic_admin_api_key` is the optional sk-ant-admin-* key used to fetch
--- authoritative spend from Anthropic's cost_report. `anthropic_model` is the
--- selected Claude model id (NULL → ANTHROPIC_MODEL env var → default).
+-- `features` is a JSON blob ({"ai": true}). `theme` is one of
+-- 'system' | 'light' | 'dark'. `selected_model` is a model id from
+-- services/ai/registry.py (NULL → SELECTED_MODEL env var → DEFAULT_MODEL).
 CREATE TABLE users (
-    id                       INTEGER PRIMARY KEY,
-    features                 TEXT NOT NULL DEFAULT '{}',
-    anthropic_api_key        TEXT,
-    theme                    TEXT NOT NULL DEFAULT 'system',
-    anthropic_admin_api_key  TEXT,
-    anthropic_model          TEXT
+    id              INTEGER PRIMARY KEY,
+    features        TEXT NOT NULL DEFAULT '{}',
+    theme           TEXT NOT NULL DEFAULT 'system',
+    selected_model  TEXT
+);
+
+-- One row per (user, provider). API key is plaintext (acceptable for local
+-- dev). The model registry tells the runtime which provider's row to read
+-- for any given model. Env vars (ANTHROPIC_API_KEY / OPENAI_API_KEY /
+-- GEMINI_API_KEY) provide fallback when the row is missing.
+CREATE TABLE ai_provider_keys (
+    user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    provider  TEXT    NOT NULL,
+    api_key   TEXT    NOT NULL,
+    PRIMARY KEY (user_id, provider)
 );
 
 -- Insights chat history.
@@ -133,11 +144,11 @@ CREATE TABLE chat_messages (
 CREATE INDEX idx_chat_msg_session     ON chat_messages(session_id, sequence);
 CREATE INDEX idx_chat_session_updated ON chat_sessions(updated_at DESC);
 
--- One row per Anthropic API call. Powers the global "$X.XX spent" chip and
+-- One row per AI API call. Powers the global "$X.XX spent" chip and
 -- per-chat estimates. `chat_session_id` is set only for chat calls so spend
 -- can be bucketed per Insights session; ai_parser and auto_categorize calls
--- leave it NULL. `cost_usd` is a snapshot at insert time using the price
--- table in services/ai_usage.py — rerunning with new prices does NOT
+-- leave it NULL. `cost_usd` is a snapshot at insert time using the registry
+-- in services/ai/registry.py — rerunning with new prices does NOT
 -- retroactively rewrite existing rows.
 CREATE TABLE ai_usage (
     id                            INTEGER PRIMARY KEY,
@@ -156,7 +167,7 @@ CREATE INDEX idx_ai_usage_session    ON ai_usage(chat_session_id);
 CREATE INDEX idx_ai_usage_created_at ON ai_usage(created_at);
 ```
 
-The `users` table also auto-migrates `anthropic_admin_api_key` and `anthropic_model` columns onto pre-existing DBs via an `_add_column_if_missing` helper in `db.py::init_schema` — SQLite has no `ADD COLUMN IF NOT EXISTS`, so it pragma-checks first.
+`db.py::init_schema` is forward-compatible with older DBs: `_add_column_if_missing` adds `selected_model` if absent, and `_drop_column_if_present` strips the legacy `anthropic_api_key` / `anthropic_admin_api_key` / `anthropic_model` columns (SQLite ≥ 3.35) when migrating an older DB. Both helpers are idempotent.
 
 ## Path strings
 
