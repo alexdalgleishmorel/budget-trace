@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../models/chat_session.dart';
 import '../services/chat_client.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ai_spend_chip.dart';
 import '../widgets/cat_icon.dart';
 
 /// History list of past Insights conversations. Always loads from the REST
@@ -157,9 +158,22 @@ class _SessionTile extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    '${_relative(session.updatedAt)} · ${session.messageCount} message${session.messageCount == 1 ? '' : 's'}',
-                    style: TextStyle(fontSize: 11, color: bt.ink4),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${_relative(session.updatedAt)} · '
+                          '${session.messageCount} '
+                          'message${session.messageCount == 1 ? '' : 's'}',
+                          style: TextStyle(fontSize: 11, color: bt.ink4),
+                        ),
+                      ),
+                      if (session.spentUsd > 0)
+                        AiSpendChip.compact(
+                          amountUsd: session.spentUsd,
+                          isEstimate: true,
+                        ),
+                    ],
                   ),
                 ],
               ),

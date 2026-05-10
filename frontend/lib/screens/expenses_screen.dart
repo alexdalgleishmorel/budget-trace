@@ -9,6 +9,7 @@ import '../utils/format.dart';
 import '../utils/leaf_categories.dart';
 import '../widgets/budget_card.dart';
 import '../widgets/cat_icon.dart';
+import '../widgets/mobile_settings_icon.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/cycle_dropdown.dart';
 import '../widgets/dropzone.dart';
@@ -24,16 +25,26 @@ class ExpensesScreen extends StatefulWidget {
     required this.transactions,
     required this.client,
     required this.aiEnabled,
+    required this.aiSpentUsd,
+    required this.aiSpentEstimated,
     required this.onChanged,
     required this.cycleLabels,
     required this.onCycleChange,
     required this.onOpenCategories,
+    required this.onOpenAccount,
   });
 
   final BudgetCycle cycle;
   final List<Transaction> transactions;
   final TransactionsClient client;
   final bool aiEnabled;
+
+  /// Total dollars spent on Anthropic so far. Surfaced as a metric inside
+  /// the upload [Dropzone] when AI parsing is on, so the user sees running
+  /// cost adjacent to the only other AI surface besides the chat.
+  final double aiSpentUsd;
+  final bool aiSpentEstimated;
+
   final Future<void> Function() onChanged;
   final List<String> cycleLabels;
   final ValueChanged<String> onCycleChange;
@@ -41,6 +52,11 @@ class ExpensesScreen extends StatefulWidget {
   /// Switches the AppShell to the Categories tab. Used by the empty-state
   /// panel's inline "Categories" link.
   final VoidCallback onOpenCategories;
+
+  /// Pushes the Account screen. Driven by the mobile header's settings
+  /// icon (replaces the "Expenses" page title); desktop has its own
+  /// Account button in the side nav.
+  final VoidCallback onOpenAccount;
 
   @override
   State<ExpensesScreen> createState() => _ExpensesScreenState();
@@ -128,6 +144,8 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             client: widget.client,
             onImported: widget.onChanged,
             aiEnabled: widget.aiEnabled,
+            aiSpentUsd: widget.aiSpentUsd,
+            aiSpentEstimated: widget.aiSpentEstimated,
             onOpenCategories: widget.onOpenCategories,
           );
         }
@@ -147,7 +165,10 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           client: widget.client,
           onImported: widget.onChanged,
           aiEnabled: widget.aiEnabled,
+          aiSpentUsd: widget.aiSpentUsd,
+          aiSpentEstimated: widget.aiSpentEstimated,
           onOpenCategories: widget.onOpenCategories,
+          onOpenAccount: widget.onOpenAccount,
         );
       },
     );
@@ -173,7 +194,10 @@ class _MobileExpenses extends StatelessWidget {
     required this.client,
     required this.onImported,
     required this.aiEnabled,
+    required this.aiSpentUsd,
+    required this.aiSpentEstimated,
     required this.onOpenCategories,
+    required this.onOpenAccount,
   });
 
   final BudgetCycle cycle;
@@ -191,7 +215,10 @@ class _MobileExpenses extends StatelessWidget {
   final TransactionsClient client;
   final Future<void> Function() onImported;
   final VoidCallback onOpenCategories;
+  final VoidCallback onOpenAccount;
   final bool aiEnabled;
+  final double aiSpentUsd;
+  final bool aiSpentEstimated;
 
   @override
   Widget build(BuildContext context) {
@@ -200,15 +227,13 @@ class _MobileExpenses extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header
+          // Header — settings icon left (replaces page title), cycle picker right.
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 10, 14, 0),
+            padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
             child: Row(
               children: [
-                Expanded(
-                  child: Text('Expenses',
-                      style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: bt.ink)),
-                ),
+                MobileSettingsIcon(onTap: onOpenAccount),
+                const Spacer(),
                 CycleDropdown(
                   value: cycle.label,
                   options: cycleLabels,
@@ -251,6 +276,8 @@ class _MobileExpenses extends StatelessWidget {
                     client: client,
                     onImported: onImported,
                     aiEnabled: aiEnabled,
+                    aiSpentUsd: aiSpentUsd,
+                    aiSpentEstimated: aiSpentEstimated,
                   ),
                   if (unknown.isEmpty && known.isEmpty) ...[
                     const SizedBox(height: 18),
@@ -346,6 +373,8 @@ class _DesktopExpenses extends StatefulWidget {
     required this.client,
     required this.onImported,
     required this.aiEnabled,
+    required this.aiSpentUsd,
+    required this.aiSpentEstimated,
     required this.onOpenCategories,
   });
 
@@ -358,6 +387,8 @@ class _DesktopExpenses extends StatefulWidget {
   final TransactionsClient client;
   final Future<void> Function() onImported;
   final bool aiEnabled;
+  final double aiSpentUsd;
+  final bool aiSpentEstimated;
   final VoidCallback onOpenCategories;
 
   @override
@@ -465,6 +496,8 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                       client: widget.client,
                       onImported: widget.onImported,
                       aiEnabled: widget.aiEnabled,
+                      aiSpentUsd: widget.aiSpentUsd,
+                      aiSpentEstimated: widget.aiSpentEstimated,
                     ),
                     const SizedBox(height: 18),
                     Row(

@@ -138,7 +138,8 @@ class SideNav extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                 child: Row(
                   children: [
-                    Icon(Icons.settings_outlined, size: 18, color: bt.ink3),
+                    BudgetIcons.build('profile',
+                        size: 18, strokeWidth: 1.8, color: bt.ink3),
                     const SizedBox(width: 10),
                     Text(
                       'Account',

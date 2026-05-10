@@ -47,8 +47,9 @@ def _env_overrides() -> set[str]:
 def ensure_default_user(conn) -> None:
     """Idempotent — call from seed and at FastAPI startup."""
     conn.execute(
-        "INSERT OR IGNORE INTO users (id, features, anthropic_api_key, theme) "
-        "VALUES (?, '{}', NULL, 'system')",
+        "INSERT OR IGNORE INTO users "
+        "(id, features, anthropic_api_key, theme, anthropic_admin_api_key, anthropic_model) "
+        "VALUES (?, '{}', NULL, 'system', NULL, NULL)",
         (DEFAULT_USER_ID,),
     )
 
@@ -92,17 +93,21 @@ def set_flag(name: str, value: bool, user_id: int = DEFAULT_USER_ID) -> dict[str
 
 def get_me(user_id: int = DEFAULT_USER_ID) -> dict:
     """Full user row, with env-override applied to flags. Used by GET /me and
-    by services/anthropic_client.py to read the API key."""
+    by services/anthropic_client.py to read the API key + model."""
     with connect() as conn:
         ensure_default_user(conn)
         row = conn.execute(
-            "SELECT features, anthropic_api_key, theme FROM users WHERE id = ?",
+            "SELECT features, anthropic_api_key, theme, "
+            "       anthropic_admin_api_key, anthropic_model "
+            "  FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
     return {
         "features": get_flags(user_id),
         "theme": row["theme"],
         "anthropic_api_key": row["anthropic_api_key"],
+        "anthropic_admin_api_key": row["anthropic_admin_api_key"],
+        "anthropic_model": row["anthropic_model"],
     }
 
 
@@ -112,13 +117,21 @@ def update_me(
     features: Any = UNSET,
     theme: Any = UNSET,
     anthropic_api_key: Any = UNSET,
+    anthropic_admin_api_key: Any = UNSET,
+    anthropic_model: Any = UNSET,
 ) -> dict:
     """Partial update of the user row. Pass `UNSET` (or omit) to leave a
-    field alone; pass `None` to clear `anthropic_api_key`.
+    field alone; pass `None` to clear key/model fields.
 
     `features` is a partial dict like `{"ai": True}` — merged into the
     existing JSON blob. Unknown flag keys raise ValueError.
+
+    `anthropic_model` must be in `services.ai_usage.MODEL_PRICES` (or None).
     """
+    # Local import to avoid a circular dep — ai_usage imports db, db imports
+    # features through bootstrap_db.
+    from .services.ai_usage import is_known_model
+
     with connect() as conn:
         ensure_default_user(conn)
         row = conn.execute(
@@ -150,6 +163,20 @@ def update_me(
             conn.execute(
                 "UPDATE users SET anthropic_api_key = ? WHERE id = ?",
                 (anthropic_api_key, user_id),
+            )
+
+        if anthropic_admin_api_key is not UNSET:
+            conn.execute(
+                "UPDATE users SET anthropic_admin_api_key = ? WHERE id = ?",
+                (anthropic_admin_api_key, user_id),
+            )
+
+        if anthropic_model is not UNSET:
+            if anthropic_model is not None and not is_known_model(anthropic_model):
+                raise ValueError(f"unsupported model: {anthropic_model!r}")
+            conn.execute(
+                "UPDATE users SET anthropic_model = ? WHERE id = ?",
+                (anthropic_model, user_id),
             )
 
     return get_me(user_id)

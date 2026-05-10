@@ -48,6 +48,8 @@ class BudgetIcons {
     'question': 'M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2.5 2-2.5 4',
     'sun': 'M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41',
     'moon': 'M21 13A9 9 0 0 1 11 3a7 7 0 1 0 10 10z',
+    // Lucide-style user/profile silhouette: round head + shoulders arc.
+    'profile': 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2',
   };
 
   // Icons that need extra shapes (circles, rects not expressible in a single path)

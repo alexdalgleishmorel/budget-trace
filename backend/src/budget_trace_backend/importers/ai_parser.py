@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 
+from ..services import ai_usage
 from ..services.anthropic_client import get_client, get_model
 from .common import ImportedRow
 
@@ -83,13 +84,15 @@ def parse_with_ai(
     user_content = _build_user_content(content, mime=mime, filename=filename)
 
     client = get_client()
+    model = get_model()
     resp = client.messages.create(
-        model=get_model(),
+        model=model,
         max_tokens=4096,
         system=SYSTEM_PROMPT,
         tools=[PARSE_TOOL],
         messages=[{"role": "user", "content": user_content}],
     )
+    ai_usage.record_usage(source="ai_parser", model=model, usage=resp.usage)
 
     rows: list[ImportedRow] = []
     errors: list[dict] = []

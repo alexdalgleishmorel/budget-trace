@@ -91,8 +91,21 @@ The orchestrator may run several tool-call rounds before getting to `present_to_
 
 `InsightsScreen._latestChart` walks the message list backwards and returns the first chart it finds. That chart is rendered in the sticky `_ChartPanel` slot between the header and the transcript. When the user asks a new question and the next response has its own chart, the slot updates. Old charts scroll out of the chat but their text stays in the transcript.
 
+## Cost tracking
+
+Every Anthropic call (chat, AI parser on import, auto-categorize on import) ends in [`services/ai_usage.py::record_usage()`](../backend/src/budget_trace_backend/services/ai_usage.py), which writes one row to the `ai_usage` table with the model, token counts, and a `cost_usd` snapshot computed from `MODEL_PRICES`. Chat calls also stamp `chat_session_id` so per-chat spend can be summed for the Insights header chip and the history list.
+
+The chat orchestrator sums usage across every iteration of the tool-use loop and persists a single row per user prompt (rather than one per `messages.create`). `ChatResponse` returns both `cost_usd` (this turn) and `session_spent_usd` (running total for the whole session) so the frontend can update without a second round-trip. `GET /chat/sessions` and `GET /chat/sessions/{id}` both surface `spent_usd` per session via a `LEFT JOIN` against `ai_usage`.
+
+Pricing lives in `MODEL_PRICES`. To add a new model: add an entry there, restart the backend, and it shows up in `available_models` for the Settings dropdown automatically.
+
+## Model selection
+
+The `anthropic_model` column on the user row, set via `PATCH /me`, overrides the `ANTHROPIC_MODEL` env var which in turn overrides the `claude-sonnet-4-6` default. Resolution lives in [`services/anthropic_client.py::get_model()`](../backend/src/budget_trace_backend/services/anthropic_client.py) — a single chokepoint that feeds chat, AI parser, and auto-categorizer. To switch models, change the column. `PATCH /me` validates the value against `MODEL_PRICES` so we never select a model whose cost we can't compute.
+
 ## Common pitfalls
 
 - **Tool argument names** must exactly match Python signatures — the JSON schema is auto-generated from `inspect.signature` in `chat.py::_build_tool_definition`. Renaming a parameter changes the schema.
 - **"Unknown" path** is overloaded. The string literal `"Unknown"` filters for `category_id IS NULL` (uncategorised transactions). The actual `Unknown` category row in the DB has no transactions assigned to it. Don't change this without updating both the SQL filters and the system prompt.
 - **Date strings** are always ISO `YYYY-MM-DD`. Path strings always use ` / ` with spaces around the separator. See [conventions.md](conventions.md).
+- **Local categorizer variable shadowing** — `categorize_rows()` has a local `ai_usage` dict in its return shape. Import the spend service as `ai_usage_svc` to avoid shadowing the module reference.

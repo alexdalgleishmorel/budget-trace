@@ -39,4 +39,12 @@ def get_client() -> Anthropic:
 
 
 def get_model() -> str:
-    return os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
+    """Resolution order: user row → env var → default. The user picks via
+    the Settings dropdown (`PATCH /me anthropic_model: ...`); env wins for
+    fresh DBs and tests; the default is the canonical Sonnet 4.x model."""
+    me = get_me()
+    return (
+        me.get("anthropic_model")
+        or os.environ.get("ANTHROPIC_MODEL")
+        or "claude-sonnet-4-6"
+    )

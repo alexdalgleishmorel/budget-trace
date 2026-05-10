@@ -36,6 +36,7 @@ import json
 import logging
 
 from ..db import category_id_for_path, connect, fetch_category_tree
+from ..services import ai_usage as ai_usage_svc
 from ..services.anthropic_client import AiKeyMissing, get_client, get_model
 
 log = logging.getLogger(__name__)
@@ -160,12 +161,16 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
 
             try:
                 client = get_client()
+                model = get_model()
                 resp = client.messages.create(
-                    model=get_model(),
+                    model=model,
                     max_tokens=4096,
                     system=SYSTEM_PROMPT,
                     tools=[ASSIGN_TOOL],
                     messages=[{"role": "user", "content": user_text}],
+                )
+                ai_usage_svc.record_usage(
+                    source="auto_categorize", model=model, usage=resp.usage,
                 )
             except AiKeyMissing as e:
                 # History pre-apply still happens; only the unknowns are lost.

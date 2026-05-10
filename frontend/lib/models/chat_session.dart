@@ -6,6 +6,7 @@ class ChatSession {
     required this.createdAt,
     required this.updatedAt,
     required this.messageCount,
+    required this.spentUsd,
   });
 
   final int id;
@@ -13,6 +14,7 @@ class ChatSession {
   final DateTime createdAt;
   final DateTime updatedAt;
   final int messageCount;
+  final double spentUsd;
 
   factory ChatSession.fromJson(Map<String, dynamic> json) => ChatSession(
         id: json['id'] as int,
@@ -22,5 +24,6 @@ class ChatSession {
         createdAt: DateTime.parse(json['created_at'] as String),
         updatedAt: DateTime.parse(json['updated_at'] as String),
         messageCount: (json['message_count'] as num?)?.toInt() ?? 0,
+        spentUsd: (json['spent_usd'] as num?)?.toDouble() ?? 0.0,
       );
 }

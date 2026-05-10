@@ -11,11 +11,14 @@ erDiagram
     categories ||--o{ categories     : "parent_id (self-ref tree)"
     categories ||--o{ transactions   : "category_id (NULL = uncategorised)"
     chat_sessions ||--o{ chat_messages : "session_id (ON DELETE CASCADE)"
+    chat_sessions ||--o{ ai_usage      : "chat_session_id (ON DELETE SET NULL)"
     users {
         INTEGER id PK
-        TEXT    features          "JSON blob: {ai: bool}"
-        TEXT    anthropic_api_key "plaintext, optional"
-        TEXT    theme             "'system' | 'light' | 'dark'"
+        TEXT    features                JSON_blob_ai_bool
+        TEXT    anthropic_api_key       plaintext_optional
+        TEXT    anthropic_admin_api_key plaintext_optional_admin_key
+        TEXT    anthropic_model         model_id_NULL_falls_back_to_env_then_default
+        TEXT    theme                   system_light_dark
     }
     categories {
         INTEGER id PK
@@ -47,6 +50,18 @@ erDiagram
         TEXT    chart_json "serialised ChartSpec; NULL for user turns"
         INTEGER errored
         TEXT    created_at
+    }
+    ai_usage {
+        INTEGER id PK
+        TEXT    created_at
+        TEXT    source                       chat_ai_parser_or_auto_categorize
+        INTEGER chat_session_id FK           NULL_unless_source_is_chat
+        TEXT    model
+        INTEGER input_tokens
+        INTEGER output_tokens
+        INTEGER cache_creation_input_tokens
+        INTEGER cache_read_input_tokens
+        REAL    cost_usd                     snapshot_at_insert_time
     }
 ```
 
@@ -84,11 +99,16 @@ CREATE UNIQUE INDEX idx_txn_source_hash
 -- Per-user settings. Single-user dev today: id=1; auth lands later.
 -- `features` is a JSON blob ({"ai": true}). `anthropic_api_key` is plaintext
 -- (acceptable for local dev). `theme` is one of 'system' | 'light' | 'dark'.
+-- `anthropic_admin_api_key` is the optional sk-ant-admin-* key used to fetch
+-- authoritative spend from Anthropic's cost_report. `anthropic_model` is the
+-- selected Claude model id (NULL → ANTHROPIC_MODEL env var → default).
 CREATE TABLE users (
-    id                  INTEGER PRIMARY KEY,
-    features            TEXT NOT NULL DEFAULT '{}',
-    anthropic_api_key   TEXT,
-    theme               TEXT NOT NULL DEFAULT 'system'
+    id                       INTEGER PRIMARY KEY,
+    features                 TEXT NOT NULL DEFAULT '{}',
+    anthropic_api_key        TEXT,
+    theme                    TEXT NOT NULL DEFAULT 'system',
+    anthropic_admin_api_key  TEXT,
+    anthropic_model          TEXT
 );
 
 -- Insights chat history.
@@ -112,7 +132,31 @@ CREATE TABLE chat_messages (
 
 CREATE INDEX idx_chat_msg_session     ON chat_messages(session_id, sequence);
 CREATE INDEX idx_chat_session_updated ON chat_sessions(updated_at DESC);
+
+-- One row per Anthropic API call. Powers the global "$X.XX spent" chip and
+-- per-chat estimates. `chat_session_id` is set only for chat calls so spend
+-- can be bucketed per Insights session; ai_parser and auto_categorize calls
+-- leave it NULL. `cost_usd` is a snapshot at insert time using the price
+-- table in services/ai_usage.py — rerunning with new prices does NOT
+-- retroactively rewrite existing rows.
+CREATE TABLE ai_usage (
+    id                            INTEGER PRIMARY KEY,
+    created_at                    TEXT NOT NULL,
+    source                        TEXT NOT NULL,            -- 'chat' | 'ai_parser' | 'auto_categorize'
+    chat_session_id               INTEGER REFERENCES chat_sessions(id) ON DELETE SET NULL,
+    model                         TEXT NOT NULL,
+    input_tokens                  INTEGER NOT NULL DEFAULT 0,
+    output_tokens                 INTEGER NOT NULL DEFAULT 0,
+    cache_creation_input_tokens   INTEGER NOT NULL DEFAULT 0,
+    cache_read_input_tokens       INTEGER NOT NULL DEFAULT 0,
+    cost_usd                      REAL NOT NULL
+);
+
+CREATE INDEX idx_ai_usage_session    ON ai_usage(chat_session_id);
+CREATE INDEX idx_ai_usage_created_at ON ai_usage(created_at);
 ```
+
+The `users` table also auto-migrates `anthropic_admin_api_key` and `anthropic_model` columns onto pre-existing DBs via an `_add_column_if_missing` helper in `db.py::init_schema` — SQLite has no `ADD COLUMN IF NOT EXISTS`, so it pragma-checks first.
 
 ## Path strings
 

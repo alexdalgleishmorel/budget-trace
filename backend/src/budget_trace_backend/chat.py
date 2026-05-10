@@ -30,6 +30,7 @@ from typing import Any, get_type_hints
 
 from .mcp_server import READ_TOOLS, WRITE_TOOLS
 from .models import ChartSpec, ChatRequest, ChatResponse
+from .services import ai_usage
 from .services.anthropic_client import get_client, get_model
 
 log = logging.getLogger(__name__)
@@ -191,20 +192,47 @@ def _dispatch(tool_name: str, tool_input: dict) -> Any:
 
 def run_chat(request: ChatRequest) -> ChatResponse:
     client = get_client()
+    model = get_model()
     tools = _build_tool_definitions()
     system_prompt = _system_prompt()
     messages: list[dict] = [
         {"role": m.role, "content": m.content} for m in request.messages
     ]
 
+    # Sum usage across every messages.create call in this turn — the tool-use
+    # loop typically emits 2-4 of them. We persist a single ai_usage row at
+    # the end so per-chat spend is one row per user prompt.
+    totals = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+    }
+
+    def _finalize(response: ChatResponse) -> ChatResponse:
+        if any(totals.values()):
+            recorded = ai_usage.record_usage(
+                source="chat",
+                model=model,
+                usage=totals,
+                chat_session_id=request.chat_session_id,
+            )
+            response.cost_usd = recorded["cost_usd"]
+        if request.chat_session_id is not None:
+            response.session_spent_usd = ai_usage.spent_for_session_local_usd(
+                request.chat_session_id
+            )
+        return response
+
     for _ in range(MAX_TOOL_ITERATIONS):
         resp = client.messages.create(
-            model=get_model(),
+            model=model,
             max_tokens=2048,
             system=system_prompt,
             tools=tools,
             messages=messages,
         )
+        _accumulate(totals, resp.usage)
 
         # If the model emits a present_to_user call we're done.
         for block in resp.content:
@@ -216,7 +244,7 @@ def run_chat(request: ChatRequest) -> ChatResponse:
                         chart = ChartSpec(**args["chart"])
                     except Exception:
                         log.exception("invalid chart spec from model: %r", args.get("chart"))
-                return ChatResponse(text=str(args.get("text", "")), chart=chart)
+                return _finalize(ChatResponse(text=str(args.get("text", "")), chart=chart))
 
         # Otherwise, dispatch any data-tool calls and continue.
         tool_uses = [b for b in resp.content if getattr(b, "type", None) == "tool_use"]
@@ -224,7 +252,9 @@ def run_chat(request: ChatRequest) -> ChatResponse:
             # Model said something but didn't call present_to_user. Salvage any
             # plain text and bail.
             text_blocks = [b.text for b in resp.content if getattr(b, "type", None) == "text"]
-            return ChatResponse(text="\n".join(text_blocks).strip() or _FALLBACK, chart=None)
+            return _finalize(
+                ChatResponse(text="\n".join(text_blocks).strip() or _FALLBACK, chart=None)
+            )
 
         # Append the assistant turn and the tool_result entries, then re-loop.
         messages.append({"role": "assistant", "content": [b.model_dump() for b in resp.content]})
@@ -238,7 +268,14 @@ def run_chat(request: ChatRequest) -> ChatResponse:
             })
         messages.append({"role": "user", "content": tool_results})
 
-    return ChatResponse(text=_FALLBACK, chart=None)
+    return _finalize(ChatResponse(text=_FALLBACK, chart=None))
+
+
+def _accumulate(totals: dict, usage: Any) -> None:
+    if usage is None:
+        return
+    for f in totals:
+        totals[f] += int(getattr(usage, f, 0) or 0)
 
 
 _FALLBACK = "Sorry, I couldn't put that together — try rephrasing the question."

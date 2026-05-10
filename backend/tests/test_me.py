@@ -29,11 +29,42 @@ def client(seeded_db: Path) -> TestClient:
 def test_get_me_defaults(client: TestClient) -> None:
     resp = client.get("/me")
     assert resp.status_code == 200
-    assert resp.json() == {
-        "features": {"ai": False},
-        "theme": "system",
-        "anthropic_api_key_set": False,
+    body = resp.json()
+    assert body["features"] == {"ai": False}
+    assert body["theme"] == "system"
+    assert body["anthropic_api_key_set"] is False
+    assert body["anthropic_admin_api_key_set"] is False
+    assert body["anthropic_model"] == "claude-sonnet-4-6"
+    assert body["ai_spent_usd"] == 0.0
+    assert body["ai_spent_source"] == "estimated"
+    assert {m["id"] for m in body["available_models"]} == {
+        "claude-opus-4-7", "claude-sonnet-4-6", "claude-haiku-4-5-20251001",
     }
+
+
+def test_patch_me_set_and_clear_admin_key(client: TestClient) -> None:
+    resp = client.patch("/me", json={"anthropic_admin_api_key": "sk-ant-admin-test"})
+    assert resp.status_code == 200
+    assert resp.json()["anthropic_admin_api_key_set"] is True
+
+    resp = client.patch("/me", json={"anthropic_admin_api_key": None})
+    assert resp.status_code == 200
+    assert resp.json()["anthropic_admin_api_key_set"] is False
+
+
+def test_patch_me_set_and_reset_model(client: TestClient) -> None:
+    resp = client.patch("/me", json={"anthropic_model": "claude-haiku-4-5-20251001"})
+    assert resp.status_code == 200
+    assert resp.json()["anthropic_model"] == "claude-haiku-4-5-20251001"
+
+    resp = client.patch("/me", json={"anthropic_model": None})
+    assert resp.status_code == 200
+    assert resp.json()["anthropic_model"] == "claude-sonnet-4-6"
+
+
+def test_patch_me_unknown_model_returns_422(client: TestClient) -> None:
+    resp = client.patch("/me", json={"anthropic_model": "claude-bogus-9-9"})
+    assert resp.status_code == 422
 
 
 def test_patch_me_features_round_trip(client: TestClient) -> None:

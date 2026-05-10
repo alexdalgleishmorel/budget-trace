@@ -52,12 +52,40 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_source_hash
 -- `features` is a JSON blob ({"ai": true}) so we can add new flags without
 -- migrations. `anthropic_api_key` is plaintext (acceptable for local dev,
 -- documented in docs/account.md). `theme` is one of 'system' | 'light' | 'dark'.
+-- `anthropic_admin_api_key` is the (optional) sk-ant-admin-* key — when set,
+-- the backend uses Anthropic's cost-report Admin API as the authoritative
+-- spend source instead of locally-estimated token cost.
+-- `anthropic_model` overrides the default model picked in services/anthropic_client.py.
 CREATE TABLE IF NOT EXISTS users (
-    id                  INTEGER PRIMARY KEY,
-    features            TEXT NOT NULL DEFAULT '{}',
-    anthropic_api_key   TEXT,
-    theme               TEXT NOT NULL DEFAULT 'system'
+    id                       INTEGER PRIMARY KEY,
+    features                 TEXT NOT NULL DEFAULT '{}',
+    anthropic_api_key        TEXT,
+    theme                    TEXT NOT NULL DEFAULT 'system',
+    anthropic_admin_api_key  TEXT,
+    anthropic_model          TEXT
 );
+
+-- One row per Anthropic API call. Powers the global "$X.XX spent" chip and
+-- per-chat estimates. `chat_session_id` is set only for chat calls (so we can
+-- bucket spend per Insights conversation); ai_parser and auto_categorize
+-- calls leave it NULL. `cost_usd` is a snapshot computed at insert time from
+-- the price table in services/ai_usage.py; rerunning with new prices does
+-- NOT retroactively update existing rows.
+CREATE TABLE IF NOT EXISTS ai_usage (
+    id                            INTEGER PRIMARY KEY,
+    created_at                    TEXT NOT NULL,
+    source                        TEXT NOT NULL,
+    chat_session_id               INTEGER REFERENCES chat_sessions(id) ON DELETE SET NULL,
+    model                         TEXT NOT NULL,
+    input_tokens                  INTEGER NOT NULL DEFAULT 0,
+    output_tokens                 INTEGER NOT NULL DEFAULT 0,
+    cache_creation_input_tokens   INTEGER NOT NULL DEFAULT 0,
+    cache_read_input_tokens       INTEGER NOT NULL DEFAULT 0,
+    cost_usd                      REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_session    ON ai_usage(chat_session_id);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created_at ON ai_usage(created_at);
 
 -- Insights chat history. One row per conversation.
 CREATE TABLE IF NOT EXISTS chat_sessions (
@@ -109,6 +137,17 @@ def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
+    _add_column_if_missing(conn, "users", "anthropic_admin_api_key", "TEXT")
+    _add_column_if_missing(conn, "users", "anthropic_model", "TEXT")
+
+
+def _add_column_if_missing(
+    conn: sqlite3.Connection, table: str, column: str, definition: str
+) -> None:
+    """SQLite has no `ADD COLUMN IF NOT EXISTS`; check pragma first."""
+    cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 def ensure_root_category(conn: sqlite3.Connection) -> None:

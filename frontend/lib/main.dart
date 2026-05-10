@@ -46,6 +46,18 @@ class _BudgetTraceAppState extends State<BudgetTraceApp> {
     setState(() => _me = me);
   }
 
+  /// Refresh `/me` after AI calls so the global spend chip updates. Cheap —
+  /// it's the chip in the shell, not a bottleneck. Silent on errors.
+  Future<void> _refreshMe() async {
+    try {
+      final me = await _meClient.get();
+      if (!mounted) return;
+      setState(() => _me = me);
+    } catch (_) {
+      // Stale spend total is harmless; chip just doesn't tick this turn.
+    }
+  }
+
   ThemeMode _themeMode() {
     switch (_me.theme) {
       case 'dark':
@@ -69,6 +81,7 @@ class _BudgetTraceAppState extends State<BudgetTraceApp> {
         me: _me,
         meClient: _meClient,
         onMeChanged: _onMeChanged,
+        onRefreshMe: _refreshMe,
       ),
     );
   }

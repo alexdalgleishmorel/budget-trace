@@ -44,11 +44,14 @@ class ChatTurn(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatTurn]
+    chat_session_id: int | None = None
 
 
 class ChatResponse(BaseModel):
     text: str
     chart: ChartSpec | None = None
+    cost_usd: float = 0.0
+    session_spent_usd: float = 0.0
 
 
 class ChatSessionOut(BaseModel):
@@ -57,6 +60,7 @@ class ChatSessionOut(BaseModel):
     created_at: str
     updated_at: str
     message_count: int = 0
+    spent_usd: float = 0.0
 
 
 class ChatMessageOut(BaseModel):
@@ -76,3 +80,5 @@ class AppendMessageRequest(BaseModel):
 class AppendMessageResponse(BaseModel):
     user_message: ChatMessageOut
     assistant_message: ChatMessageOut
+    cost_usd: float = 0.0
+    session_spent_usd: float = 0.0

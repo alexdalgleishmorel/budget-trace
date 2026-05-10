@@ -4,7 +4,9 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/chat_message.dart';
 import '../services/chat_client.dart';
 import '../theme/app_theme.dart';
+import '../widgets/ai_spend_chip.dart';
 import '../widgets/cat_icon.dart';
+import '../widgets/mobile_settings_icon.dart';
 import 'insights_history_view.dart';
 
 /// Insights tab — chat with the AI about your spending.
@@ -20,6 +22,7 @@ class InsightsScreen extends StatefulWidget {
     super.key,
     required this.apiKeySet,
     required this.onOpenAccount,
+    required this.onSpendChanged,
   });
 
   /// Whether the user has stored an Anthropic API key. When false, the chat
@@ -29,6 +32,10 @@ class InsightsScreen extends StatefulWidget {
 
   /// Push the AccountScreen — used by the no-key empty state's CTA.
   final Future<void> Function() onOpenAccount;
+
+  /// Notify the shell that AI spend may have changed so it can re-fetch
+  /// `/me` and refresh the global spend chip in the nav.
+  final VoidCallback onSpendChanged;
 
   @override
   State<InsightsScreen> createState() => _InsightsScreenState();
@@ -43,6 +50,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
 
   int? _activeSessionId;
   bool _busy = false;
+  double _sessionSpentUsd = 0.0;
 
   @override
   void initState() {
@@ -63,6 +71,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
     setState(() {
       _activeSessionId = null;
       _messages.clear();
+      _sessionSpentUsd = 0.0;
     });
     _focusNode.requestFocus();
   }
@@ -83,13 +92,25 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Future<void> _loadSession(int sessionId) async {
     setState(() => _busy = true);
     try {
-      final msgs = await _client.getMessages(sessionId);
+      final results = await Future.wait([
+        _client.getMessages(sessionId),
+        _client.listSessions(),
+      ]);
+      final msgs = results[0] as List<ChatMessage>;
+      final sessions = results[1] as List;
+      final spent = sessions
+          .firstWhere(
+            (s) => (s as dynamic).id == sessionId,
+            orElse: () => null,
+          );
       if (!mounted) return;
       setState(() {
         _activeSessionId = sessionId;
         _messages
           ..clear()
           ..addAll(msgs);
+        _sessionSpentUsd =
+            spent == null ? 0.0 : (spent as dynamic).spentUsd as double;
       });
       _scrollToBottom();
     } catch (e) {
@@ -170,7 +191,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
         // (last) with the server-acknowledged versions.
         _messages[_messages.length - 2] = reply.userMessage;
         _messages[_messages.length - 1] = reply.assistantMessage;
+        _sessionSpentUsd = reply.sessionSpentUsd;
       });
+      widget.onSpendChanged();
     } catch (e) {
       if (!mounted) return;
       setState(() {
@@ -225,6 +248,9 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 isDesktop: isDesktop,
                 onNewChat: _startNewChat,
                 onHistory: _openHistory,
+                onOpenAccount: widget.onOpenAccount,
+                sessionSpentUsd: _sessionSpentUsd,
+                showSpend: _activeSessionId != null || _sessionSpentUsd > 0,
               ),
             ),
             Expanded(
@@ -265,39 +291,66 @@ class _Header extends StatelessWidget {
     required this.isDesktop,
     required this.onNewChat,
     required this.onHistory,
+    required this.onOpenAccount,
+    required this.sessionSpentUsd,
+    required this.showSpend,
   });
 
   final bool isDesktop;
   final VoidCallback onNewChat;
   final VoidCallback onHistory;
+  final Future<void> Function() onOpenAccount;
+  final double sessionSpentUsd;
+  final bool showSpend;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            'Insights',
-            style: TextStyle(
-              fontSize: isDesktop ? 30 : 17,
-              fontWeight: FontWeight.w600,
-              letterSpacing: isDesktop ? -0.025 : 0,
-              color: bt.ink,
+    if (isDesktop) {
+      return Row(
+        children: [
+          Expanded(
+            child: Text(
+              'Insights',
+              style: TextStyle(
+                fontSize: 30,
+                fontWeight: FontWeight.w600,
+                letterSpacing: -0.025,
+                color: bt.ink,
+              ),
             ),
           ),
-        ),
-        _HeaderButton(
-          tooltip: 'History',
-          icon: 'menu',
-          onPressed: onHistory,
-        ),
+          if (showSpend) ...[
+            AiSpendChip.detailed(
+              amountUsd: sessionSpentUsd,
+              isEstimate: true,
+              label: 'this chat',
+            ),
+            const SizedBox(width: 8),
+          ],
+          _HeaderButton(tooltip: 'History', icon: 'menu', onPressed: onHistory),
+          const SizedBox(width: 4),
+          _HeaderButton(tooltip: 'New chat', icon: 'plus', onPressed: onNewChat),
+        ],
+      );
+    }
+    // Mobile: drop the page title; the bottom tab bar already labels the
+    // tab. Settings icon takes its place top-left.
+    return Row(
+      children: [
+        MobileSettingsIcon(onTap: () => onOpenAccount()),
+        const Spacer(),
+        if (showSpend) ...[
+          AiSpendChip.detailed(
+            amountUsd: sessionSpentUsd,
+            isEstimate: true,
+            label: 'this chat',
+          ),
+          const SizedBox(width: 8),
+        ],
+        _HeaderButton(tooltip: 'History', icon: 'menu', onPressed: onHistory),
         const SizedBox(width: 4),
-        _HeaderButton(
-          tooltip: 'New chat',
-          icon: 'plus',
-          onPressed: onNewChat,
-        ),
+        _HeaderButton(tooltip: 'New chat', icon: 'plus', onPressed: onNewChat),
       ],
     );
   }

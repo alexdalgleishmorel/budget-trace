@@ -59,8 +59,15 @@ class ChatClient {
   /// Append [text] as a user turn, run the AI, persist + return the assistant
   /// reply. The user message reflected back is also returned (with its
   /// server-assigned id and sequence) so the UI can replace its optimistic copy.
-  Future<({ChatMessage userMessage, ChatMessage assistantMessage})>
-      appendMessage(int sessionId, String text) async {
+  /// `costUsd` is the dollar cost of the AI call(s) for this turn alone;
+  /// `sessionSpentUsd` is the running cumulative for the whole session.
+  Future<
+      ({
+        ChatMessage userMessage,
+        ChatMessage assistantMessage,
+        double costUsd,
+        double sessionSpentUsd,
+      })> appendMessage(int sessionId, String text) async {
     final resp = await _client.post(
       Uri.parse('$_baseUrl/chat/sessions/$sessionId/messages'),
       headers: {'Content-Type': 'application/json'},
@@ -72,6 +79,8 @@ class ChatClient {
       userMessage: _messageFromJson(json['user_message'] as Map<String, dynamic>),
       assistantMessage:
           _messageFromJson(json['assistant_message'] as Map<String, dynamic>),
+      costUsd: (json['cost_usd'] as num?)?.toDouble() ?? 0.0,
+      sessionSpentUsd: (json['session_spent_usd'] as num?)?.toDouble() ?? 0.0,
     );
   }
 

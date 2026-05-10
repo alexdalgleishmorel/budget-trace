@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import '../widgets/budget_card.dart';
 import '../widgets/cat_icon.dart';
 import '../widgets/category_edit_modal.dart';
+import '../widgets/mobile_settings_icon.dart';
 
 class CategoriesScreen extends StatefulWidget {
   const CategoriesScreen({
@@ -14,6 +15,7 @@ class CategoriesScreen extends StatefulWidget {
     required this.client,
     required this.onChanged,
     required this.navPulse,
+    required this.onOpenAccount,
   });
 
   /// Snapshot of the category tree owned and re-fetched by AppShell. After any
@@ -31,6 +33,11 @@ class CategoriesScreen extends StatefulWidget {
   /// tab — `didUpdateWidget` observes the change and pops the drill-down
   /// to root.
   final int navPulse;
+
+  /// Opens the AccountScreen modal. Wired to the mobile header's settings
+  /// icon (replaces the "Categories" page title); desktop has its own
+  /// Account button in the side nav.
+  final VoidCallback onOpenAccount;
 
   @override
   State<CategoriesScreen> createState() => _CategoriesScreenState();
@@ -204,7 +211,9 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
             padding: const EdgeInsets.fromLTRB(14, 10, 12, 6),
             child: Row(
               children: [
-                if (!atRoot)
+                if (atRoot)
+                  MobileSettingsIcon(onTap: widget.onOpenAccount)
+                else
                   GestureDetector(
                     onTap: _back,
                     child: Padding(
@@ -212,18 +221,21 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       child: BudgetIcons.build('chevron-left',
                           size: 22, strokeWidth: 2, color: bt.ink),
                     ),
-                  )
-                else
-                  const SizedBox(width: 4),
-                Expanded(
-                  child: Text(
-                    atRoot ? 'Categories' : _current.name,
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                      color: bt.ink,
-                    ),
                   ),
+                Expanded(
+                  child: atRoot
+                      ? const SizedBox.shrink()
+                      : Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: Text(
+                            _current.name,
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w600,
+                              color: bt.ink,
+                            ),
+                          ),
+                        ),
                 ),
                 _IconButton(
                   icon: 'plus',

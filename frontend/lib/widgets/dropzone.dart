@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
+import 'ai_spend_chip.dart';
 import 'cat_icon.dart';
 import 'import_progress_modal.dart';
 
@@ -12,13 +13,19 @@ import 'import_progress_modal.dart';
 /// AppShell refetches.
 ///
 /// CSV is always allowed. When [aiEnabled] is true, a small toggle appears
-/// underneath that, when on, sends `parser=ai` and accepts PDFs.
+/// underneath that, when on, sends `parser=ai` and accepts PDFs. The
+/// running cumulative AI spend is rendered as an [AiSpendChip] above the
+/// dropzone — this is the only AI surface besides the Insights chat, so
+/// it's where the global spend metric lives now (was previously in the
+/// side nav).
 class Dropzone extends StatefulWidget {
   const Dropzone({
     super.key,
     required this.client,
     required this.onImported,
     required this.aiEnabled,
+    required this.aiSpentUsd,
+    required this.aiSpentEstimated,
     this.compact = false,
   });
 
@@ -26,6 +33,8 @@ class Dropzone extends StatefulWidget {
   final TransactionsClient client;
   final Future<void> Function() onImported;
   final bool aiEnabled;
+  final double aiSpentUsd;
+  final bool aiSpentEstimated;
 
   @override
   State<Dropzone> createState() => _DropzoneState();
@@ -71,12 +80,30 @@ class _DropzoneState extends State<Dropzone> {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
-      child: GestureDetector(
-        onTap: _pickAndUpload,
-        child: AnimatedContainer(
+    final showChip = widget.aiEnabled || widget.aiSpentUsd > 0;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (showChip) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Row(
+              children: [
+                AiSpendChip.detailed(
+                  amountUsd: widget.aiSpentUsd,
+                  isEstimate: widget.aiSpentEstimated,
+                  label: 'spent on Anthropic',
+                ),
+              ],
+            ),
+          ),
+        ],
+        MouseRegion(
+          onEnter: (_) => setState(() => _hovered = true),
+          onExit: (_) => setState(() => _hovered = false),
+          child: GestureDetector(
+            onTap: _pickAndUpload,
+            child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
           width: double.infinity,
           padding: EdgeInsets.symmetric(
@@ -128,8 +155,10 @@ class _DropzoneState extends State<Dropzone> {
               ],
             ],
           ),
+            ),
+          ),
         ),
-      ),
+      ],
     );
   }
 }

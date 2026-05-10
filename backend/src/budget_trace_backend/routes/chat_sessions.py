@@ -74,10 +74,14 @@ def append_message(session_id: int, body: AppendMessageRequest) -> AppendMessage
 
     history = svc.get_messages(session_id)
     turns = [ChatTurn(role=m["role"], content=m["text"]) for m in history]
+    cost_usd = 0.0
+    session_spent_usd = 0.0
     try:
-        reply = run_chat(ChatRequest(messages=turns))
+        reply = run_chat(ChatRequest(messages=turns, chat_session_id=session_id))
         assistant_text = reply.text
         chart_payload = reply.chart.model_dump() if reply.chart else None
+        cost_usd = reply.cost_usd
+        session_spent_usd = reply.session_spent_usd
         errored = False
     except AiKeyMissing as e:
         raise HTTPException(
@@ -100,6 +104,8 @@ def append_message(session_id: int, body: AppendMessageRequest) -> AppendMessage
     return AppendMessageResponse(
         user_message=_message_to_out(user_msg),
         assistant_message=_message_to_out(assistant_msg),
+        cost_usd=cost_usd,
+        session_spent_usd=session_spent_usd,
     )
 
 

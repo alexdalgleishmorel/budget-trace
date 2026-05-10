@@ -30,7 +30,8 @@ def list_sessions() -> list[dict]:
         rows = conn.execute(
             """
             SELECT s.id, s.title, s.created_at, s.updated_at,
-                   (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS message_count
+                   (SELECT COUNT(*) FROM chat_messages m WHERE m.session_id = s.id) AS message_count,
+                   (SELECT COALESCE(SUM(u.cost_usd), 0.0) FROM ai_usage u WHERE u.chat_session_id = s.id) AS spent_usd
               FROM chat_sessions s
              ORDER BY s.updated_at DESC, s.id DESC
             """,
@@ -42,6 +43,7 @@ def list_sessions() -> list[dict]:
                 "created_at": r["created_at"],
                 "updated_at": r["updated_at"],
                 "message_count": r["message_count"],
+                "spent_usd": float(r["spent_usd"] or 0.0),
             }
             for r in rows
         ]
@@ -69,7 +71,11 @@ def get_session(session_id: int) -> dict | None:
     _ensure_schema()
     with connect() as conn:
         row = conn.execute(
-            "SELECT id, title, created_at, updated_at FROM chat_sessions WHERE id = ?",
+            """
+            SELECT s.id, s.title, s.created_at, s.updated_at,
+                   (SELECT COALESCE(SUM(u.cost_usd), 0.0) FROM ai_usage u WHERE u.chat_session_id = s.id) AS spent_usd
+              FROM chat_sessions s WHERE s.id = ?
+            """,
             (session_id,),
         ).fetchone()
         if row is None:
@@ -79,6 +85,7 @@ def get_session(session_id: int) -> dict | None:
             "title": row["title"] or "New chat",
             "created_at": row["created_at"],
             "updated_at": row["updated_at"],
+            "spent_usd": float(row["spent_usd"] or 0.0),
         }
 
 

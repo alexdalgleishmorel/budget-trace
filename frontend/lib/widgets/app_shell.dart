@@ -28,11 +28,13 @@ class AppShell extends StatefulWidget {
     required this.me,
     required this.meClient,
     required this.onMeChanged,
+    required this.onRefreshMe,
   });
 
   final Me me;
   final MeClient meClient;
   final ValueChanged<Me> onMeChanged;
+  final Future<void> Function() onRefreshMe;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -162,9 +164,15 @@ class _AppShellState extends State<AppShell> {
   /// After mutating either categories or transactions, screens call this so
   /// the shell re-fetches both. Re-fetching both is overkill for some
   /// operations (e.g. assigning a category doesn't change the tree) but
-  /// keeps the wiring simple and is cheap against the local backend.
+  /// keeps the wiring simple and is cheap against the local backend. Also
+  /// refreshes `me` so the global AI-spend chip catches usage incurred by
+  /// AI parser / auto-categorize during an import.
   Future<void> _refetchAll() async {
-    await Future.wait([_loadCategories(), _loadTransactions()]);
+    await Future.wait([
+      _loadCategories(),
+      _loadTransactions(),
+      widget.onRefreshMe(),
+    ]);
   }
 
   /// Nav-tap handler shared by `BottomTabsBar` and `SideNav`. Tapping the
@@ -211,6 +219,7 @@ class _AppShellState extends State<AppShell> {
         client: _categoriesClient,
         onChanged: _loadCategories,
         navPulse: _categoriesNavPulse,
+        onOpenAccount: _openAccount,
       );
     }
 
@@ -230,10 +239,13 @@ class _AppShellState extends State<AppShell> {
         transactions: _transactions,
         client: _transactionsClient,
         aiEnabled: widget.me.features.ai,
+        aiSpentUsd: widget.me.aiSpentUsd,
+        aiSpentEstimated: widget.me.isSpendEstimated,
         onChanged: _refetchAll,
         cycleLabels: _cycleLabels,
         onCycleChange: _onCycleChange,
         onOpenCategories: () => setState(() => _tab = 0),
+        onOpenAccount: _openAccount,
       );
     }
 
@@ -241,6 +253,7 @@ class _AppShellState extends State<AppShell> {
       return InsightsScreen(
         apiKeySet: widget.me.anthropicApiKeySet,
         onOpenAccount: _openAccount,
+        onSpendChanged: () => widget.onRefreshMe(),
       );
     }
 
@@ -277,15 +290,6 @@ class _AppShellState extends State<AppShell> {
           body: Column(
             children: [
               Expanded(child: _buildScreen(_tab)),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 4, 18, 4),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.end,
-                  children: [
-                    _SettingsButton(onTap: _openAccount),
-                  ],
-                ),
-              ),
               BottomTabsBar(
                 current: _tab,
                 onNav: _onNav,
@@ -295,41 +299,6 @@ class _AppShellState extends State<AppShell> {
           ),
         );
       },
-    );
-  }
-}
-
-/// Small icon-only affordance that opens the AccountScreen.
-class _SettingsButton extends StatelessWidget {
-  const _SettingsButton({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final bt = context.bt;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BudgetRadius.btnBR,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.settings_outlined, size: 16, color: bt.ink3),
-            const SizedBox(width: 8),
-            Text(
-              'Account',
-              style: TextStyle(
-                fontSize: 11,
-                fontWeight: FontWeight.w500,
-                color: bt.ink3,
-                letterSpacing: 0.66,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
