@@ -60,13 +60,14 @@ backend/
       ai_usage.py                      # per-call cost snapshot + cumulative spend reads
       categories.py                    # category mutation services (used by routes + MCP)
       chat_sessions.py                 # session + message persistence (widget_json)
-      dashboards.py                    # dashboards/widgets/saved_insights services
+      dashboards.py                    # dashboards/widgets services + save-chat-to-dashboard
+      ai_widget_audit.py               # snapshot-fallback audit log
       transactions.py                  # transaction mutation services
       widget_metrics.py                # curated metric registry + time-range resolution
     routes/
       categories.py                    # CRUD HTTP handlers
       chat_sessions.py                 # /chat/sessions, /chat/help (gated by `ai`)
-      dashboards.py                    # /dashboards, /widget-metrics, /saved-insights (gated by `widgets`)
+      dashboards.py                    # /dashboards, /widget-metrics, /chat/messages/{id}/save-to-dashboard, /ai-widget-audit (gated by `widgets`)
       transactions.py                  # CRUD + bulk_rename
       imports.py                       # POST /transactions/import (CSV + AI + auto-categorize)
       me.py                            # GET/PATCH /me — features, theme, model, provider keys
@@ -81,7 +82,7 @@ backend/
     fixtures/                          # CSV fixtures
     test_data_tools.py                 # read tools (aggregate, forecast, etc.)
     test_categories.py                 # CRUD + MCP write tools
-    test_dashboards.py                 # dashboards/widgets/saved_insights + metric registry
+    test_dashboards.py                 # dashboards/widgets + save-chat-to-dashboard + metric registry
     test_transactions.py               # CRUD + MCP write tools
     test_importer.py                   # CSV parsing + dedupe + import route
     test_features.py                   # feature flags + AI gate

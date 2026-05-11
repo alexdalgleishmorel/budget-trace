@@ -117,11 +117,14 @@ class _WidgetCardState extends State<WidgetCard> {
             _Titlebar(
               title: widget.widget.title,
               busy: _busy,
+              isSnapshot: _data?.isSnapshot ?? false,
               onRefresh: _refresh,
               onEdit: widget.onEdit,
               onDelete: widget.onDelete,
             ),
           Expanded(child: _body(bt)),
+          if (!widget.compact && (_data?.viaChat ?? false))
+            _ViaChatFooter(bt: bt),
         ],
       ),
     );
@@ -168,13 +171,25 @@ class _Titlebar extends StatelessWidget {
   const _Titlebar({
     required this.title,
     required this.busy,
+    required this.isSnapshot,
     required this.onRefresh,
     this.onEdit,
     this.onDelete,
   });
 
+  /// Display string formatted server-side as `{Widget type} : {Metric}`
+  /// (or `… : Snapshot`). Empty means the chrome should render no title
+  /// — used by the chat transcript where the surrounding text already
+  /// labels the widget.
   final String title;
   final bool busy;
+
+  /// True when the underlying widget is a frozen snapshot — shows a small
+  /// "Snapshot" badge and disables the refresh icon (there's nothing to
+  /// refresh; the bytes are stored as-is and don't track the dashboard's
+  /// time range).
+  final bool isSnapshot;
+
   final VoidCallback onRefresh;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
@@ -184,25 +199,31 @@ class _Titlebar extends StatelessWidget {
     final bt = context.bt;
     final hasTitle = title.trim().isNotEmpty;
     return Container(
-      padding: const EdgeInsets.fromLTRB(12, 10, 8, 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 6, 6),
       decoration: BoxDecoration(
         border: Border(bottom: BorderSide(color: bt.ruleSoft)),
       ),
       child: Row(
         children: [
-          Expanded(
-            child: Text(
-              hasTitle ? title : 'Untitled',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: hasTitle ? bt.ink : bt.ink5,
-                fontStyle: hasTitle ? FontStyle.normal : FontStyle.italic,
+          if (hasTitle)
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: bt.ink2,
+                ),
               ),
-            ),
-          ),
+            )
+          else
+            const Spacer(),
+          if (isSnapshot) ...[
+            _SnapshotChip(bt: bt),
+            const SizedBox(width: 4),
+          ],
           if (busy) ...[
             SizedBox(
               width: 12, height: 12,
@@ -213,11 +234,12 @@ class _Titlebar extends StatelessWidget {
             ),
             const SizedBox(width: 6),
           ],
-          _IconBtn(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh, size: 16),
-            onPressed: onRefresh,
-          ),
+          if (!isSnapshot)
+            _IconBtn(
+              tooltip: 'Refresh',
+              icon: const Icon(Icons.refresh, size: 16),
+              onPressed: onRefresh,
+            ),
           if (onEdit != null)
             _IconBtn(
               tooltip: 'Edit',
@@ -233,6 +255,63 @@ class _Titlebar extends StatelessWidget {
               onPressed: onDelete,
             ),
         ],
+      ),
+    );
+  }
+}
+
+/// Subtle footer that tags widgets added via the Insights chat
+/// "Save to dashboard…" flow. Uses the same green accent the rest of
+/// the AI surface uses (`bt.pos`).
+class _ViaChatFooter extends StatelessWidget {
+  const _ViaChatFooter({required this.bt});
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+      alignment: Alignment.centerLeft,
+      child: Text(
+        'Added from Insights',
+        style: TextStyle(
+          fontSize: 10,
+          color: bt.pos,
+          fontWeight: FontWeight.w500,
+          letterSpacing: 0.2,
+        ),
+      ),
+    );
+  }
+}
+
+
+class _SnapshotChip extends StatelessWidget {
+  const _SnapshotChip({required this.bt});
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message:
+          "Captured from a chat answer — data is frozen and doesn't follow the "
+          "dashboard's time range.",
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: bt.surface2,
+          border: Border.all(color: bt.ruleSoft),
+          borderRadius: const BorderRadius.all(Radius.circular(6)),
+        ),
+        child: Text(
+          'Snapshot',
+          style: TextStyle(
+            fontSize: 10,
+            color: bt.ink3,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.4,
+          ),
+        ),
       ),
     );
   }

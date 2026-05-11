@@ -39,18 +39,27 @@ class ChartSpec(BaseModel):
 
 class WidgetSpec(BaseModel):
     """Generic, polymorphic widget payload — used by the Insights AI to
-    return any widget type (not just timeseries) and by saved insights to
-    persist a frozen rendering.
+    return any widget type and emitted alongside each assistant message.
 
-    `data` shape is keyed by `type` and mirrors what
-    `services/widget_metrics.py::resolve_metric_data` returns for each
-    widget type, so the same frontend renderer handles AI output and
-    dashboard data uniformly.
+    `data` is the rendered snapshot the chat shows. When the AI was able
+    to express the answer as a curated metric, `metric_id` /
+    `metric_params` capture the re-runnable query: saving the widget to
+    a dashboard later uses these to create a `kind:"metric"` widget that
+    follows the dashboard's time range. When the answer is a novel
+    pattern that no registry metric covers, both stay null and the saved
+    widget becomes a `kind:"snapshot"` (frozen bytes) instead.
     """
 
     type: Literal["timeseries", "bar", "pie", "query_value", "table", "treemap"]
-    title: str
+    # Titles are no longer surfaced in the UI; kept optional for older
+    # stored payloads and for snapshot-fallback metadata.
+    title: str = ""
     data: dict
+    metric_id: str | None = None
+    metric_params: dict | None = None
+    # Only populated when the AI fell back to a snapshot — surfaced via
+    # the ai_widget_audit table so the registry can grow.
+    fallback_reason: str | None = None
 
 
 def widget_from_chart(chart: dict | ChartSpec | None) -> WidgetSpec | None:

@@ -6,7 +6,7 @@ Single-user settings for the local-dev build. There's a real `users` table (id=1
 
 - `features` — JSON blob of feature flags: `{ "ai": bool, "widgets": bool }`. The `ai` flag is **off** by default (requires a provider key to be useful); the `widgets` flag is **on** by default (see [`features.py::DEFAULT_ON_FLAGS`](../backend/src/budget_trace_backend/features.py)). Each gate:
   - `ai` — PDF / image / general AI parsing on `POST /transactions/import?parser=ai` (403 when off); auto-categorize-on-import via [`importers/categorizer.py`](../backend/src/budget_trace_backend/importers/categorizer.py); the Insights chat (`POST /chat/sessions/{id}/messages` returns 403 when off; historical reads stay open).
-  - `widgets` — the Widgets tab and every `/dashboards/*`, `/widget-metrics`, `/saved-insights/*` route (403 + `feature_disabled` when off). See [widgets.md](widgets.md).
+  - `widgets` — the Widgets tab and every `/dashboards/*`, `/widget-metrics`, `/chat/messages/{id}/save-to-dashboard`, `/ai-widget-audit` route (403 + `feature_disabled` when off). See [widgets.md](widgets.md).
 - `selected_model` — a model id from [`services/ai/registry.py`](../backend/src/budget_trace_backend/services/ai/registry.py). Drives every AI call (chat, parser, auto-categorizer). `null` falls back to the `SELECTED_MODEL` env var, then the registry's `DEFAULT_MODEL`. Validated server-side; `PATCH` rejects unknown ids with 422.
 - `theme` — `system` | `light` | `dark`. Drives `MaterialApp.themeMode` in `main.dart`.
 - `last_dashboard_id` — nullable FK-ish pointer to the dashboard the user was last viewing. `GET /dashboards/{id}` stamps it as a side effect so the Widgets tab can reopen on the same dashboard. Surfaced on `/me` for the frontend to seed initial navigation.
@@ -62,7 +62,7 @@ To switch model, `PATCH /me` with `{"selected_model": "gpt-4o"}`. `null` resets 
 
 `PATCH` is partial: omit a field to leave it unchanged. `features` is a partial dict — sending `{"features": {"ai": true}}` flips just `ai` and leaves `widgets` (and any future flags) alone.
 
-The `widgets` flag is `true` by default and can be flipped off via `PATCH /me {"features": {"widgets": false}}`. With it off, the tab disappears from the nav and every dashboard / saved-insight / metric-registry route 403s. There's no UI surface on the Account screen for it today — flip via API.
+The `widgets` flag is `true` by default and can be flipped off via `PATCH /me {"features": {"widgets": false}}`. With it off, the tab disappears from the nav and every dashboard / save-chat / metric-registry / audit route 403s. There's no UI surface on the Account screen for it today — flip via API.
 
 ## UI: the Account screen
 

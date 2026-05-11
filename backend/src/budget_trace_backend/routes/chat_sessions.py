@@ -11,7 +11,11 @@ DELETE /chat/sessions/{id}                 → delete a session and its messages
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, HTTPException
+
+log = logging.getLogger(__name__)
 
 from .. import features
 from ..chat import run_chat
@@ -25,7 +29,7 @@ from ..models import (
     ChatTurn,
     WidgetSpec,
 )
-from ..services import chat_sessions as svc
+from ..services import ai_widget_audit, chat_sessions as svc
 from ..services.ai.client import AiKeyMissing
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -89,7 +93,13 @@ def append_message(session_id: int, body: AppendMessageRequest) -> AppendMessage
             detail={"code": e.code, "message": str(e)},
         )
     except Exception as e:  # noqa: BLE001
-        assistant_text = f"Error: {e}"
+        # Surface the traceback to the server log — the user-visible
+        # message only carries the exception type + repr, which has
+        # historically been opaque ("'label: value'" → no clue what
+        # raised). With the log entry the next reproduction lands a
+        # full traceback against the offending tool/widget shape.
+        log.exception("chat orchestrator failed for session %s", session_id)
+        assistant_text = f"Error ({type(e).__name__}): {e}"
         widget_payload = None
         errored = True
 
@@ -100,6 +110,21 @@ def append_message(session_id: int, body: AppendMessageRequest) -> AppendMessage
         widget=widget_payload,
         errored=errored,
     )
+
+    # Snapshot-only widgets are the audit trigger: no metric_id means the
+    # AI couldn't express the answer with a curated metric, so log it for
+    # registry growth. Metric-backed widgets need no audit.
+    if (
+        widget_payload
+        and not widget_payload.get("metric_id")
+        and not errored
+    ):
+        ai_widget_audit.record_snapshot_fallback(
+            message_id=assistant_msg["id"],
+            widget_type=widget_payload.get("type") or "unknown",
+            fallback_reason=widget_payload.get("fallback_reason"),
+            user_question=text,
+        )
 
     return AppendMessageResponse(
         user_message=_message_to_out(user_msg),

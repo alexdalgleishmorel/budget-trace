@@ -257,7 +257,6 @@ class _AppShellState extends State<AppShell> {
         return const _LoadingPanel();
       }
       return WidgetsScreen(
-        lastDashboardId: widget.me.lastDashboardId,
         onLastDashboardChanged: () => widget.onRefreshMe(),
       );
     }

@@ -9,37 +9,63 @@ import 'package:flutter/widgets.dart';
 import '../widgets/timeseries_chart.dart';
 import 'chart_spec.dart';
 
-/// Polymorphic widget payload shared by Insights chat messages and saved
-/// insights. Mirrors the backend's `WidgetSpec`. The shape of [data]
-/// matches what `widget_metrics.resolve_metric_data` returns for each
-/// widget [type], so the same renderer handles AI output and dashboard
-/// data uniformly.
+/// Polymorphic widget payload emitted by the Insights AI. Mirrors the
+/// backend's `WidgetSpec`. The shape of [data] matches what
+/// `widget_metrics.resolve_metric_data` returns for each widget [type],
+/// so the same renderer handles AI output and dashboard data uniformly.
+///
+/// When the AI was able to express the answer as a curated metric,
+/// [metricId] / [metricParams] capture the re-runnable query: saving
+/// the widget to a dashboard creates a `kind:"metric"` widget that
+/// follows the dashboard's time range. Otherwise the answer is a frozen
+/// snapshot and [fallbackReason] explains why no metric fit.
 class WidgetPayload {
   const WidgetPayload({
     required this.type,
     required this.title,
     required this.data,
+    this.metricId,
+    this.metricParams,
+    this.fallbackReason,
   });
 
   final String type;
   final String title;
   final Map<String, dynamic> data;
+  final String? metricId;
+  final Map<String, dynamic>? metricParams;
+  final String? fallbackReason;
+
+  /// True when the widget cannot be re-run on a dashboard — i.e. the
+  /// answer would need to be served as frozen bytes. The chat-side
+  /// "Save to dashboard" flow uses this to badge the resulting widget.
+  bool get isSnapshot => metricId == null;
 
   factory WidgetPayload.fromJson(Map<String, dynamic> j) => WidgetPayload(
         type: j['type'] as String,
         title: j['title'] as String? ?? '',
         data: Map<String, dynamic>.from(j['data'] as Map),
+        metricId: j['metric_id'] as String?,
+        metricParams: j['metric_params'] is Map
+            ? Map<String, dynamic>.from(j['metric_params'] as Map)
+            : null,
+        fallbackReason: j['fallback_reason'] as String?,
       );
 
   Map<String, dynamic> toJson() => {
         'type': type,
         'title': title,
         'data': data,
+        if (metricId != null) 'metric_id': metricId,
+        if (metricParams != null) 'metric_params': metricParams,
+        if (fallbackReason != null) 'fallback_reason': fallbackReason,
       };
 
-  /// Treat the payload as a [WidgetData] (drops the title field) so it
-  /// can flow into `WidgetCard.previewData`.
-  WidgetData asData() => WidgetData(type: type, data: data);
+  /// Treat the payload as a [WidgetData] so it can flow into
+  /// `WidgetCard.previewData`. Chat widgets are always rendered as
+  /// snapshots in the transcript (the chat is the historical view).
+  WidgetData asData() =>
+      WidgetData(type: type, data: data, isSnapshot: true);
 }
 
 /// Time window applied to every widget on a dashboard. Presets roll with
@@ -161,27 +187,28 @@ class WidgetLayout {
       );
 }
 
-/// Frontend-side data-source descriptor. Either a curated metric or a saved
-/// insight. Mirrors the JSON shape stored in `widgets.data_source_json`
-/// server-side; the renderer never branches on this — it dispatches on
-/// the widget `type` and the data shape returned from
-/// `GET /dashboards/:id/widgets/:wid/data`.
+/// Frontend-side data-source descriptor. Either a curated metric (live,
+/// follows the dashboard's time range) or a snapshot (frozen bytes lifted
+/// off a chat answer; ignores the dashboard's time range). Mirrors the
+/// JSON shape stored in `widgets.data_source_json` server-side; the
+/// renderer never branches on this — it dispatches on the widget `type`
+/// and the data shape returned from
+/// `GET /dashboards/:id/widgets/:wid/data`. The `is_snapshot` flag in
+/// that response is what triggers the chrome's "Snapshot" badge.
 class WidgetDataSource {
   const WidgetDataSource.metric({
     required this.metricId,
     this.params = const {},
-  })  : kind = 'metric',
-        insightId = null;
+  }) : kind = 'metric';
 
-  const WidgetDataSource.insight({required int this.insightId})
-      : kind = 'insight',
+  const WidgetDataSource.snapshot()
+      : kind = 'snapshot',
         metricId = null,
         params = const {};
 
-  final String kind; // 'metric' | 'insight'
+  final String kind; // 'metric' | 'snapshot'
   final String? metricId;
   final Map<String, dynamic> params;
-  final int? insightId;
 
   factory WidgetDataSource.fromJson(Map<String, dynamic> j) {
     final kind = j['kind'] as String;
@@ -193,18 +220,18 @@ class WidgetDataSource {
         ),
       );
     }
-    return WidgetDataSource.insight(insightId: j['insight_id'] as int);
+    return const WidgetDataSource.snapshot();
   }
 
   Map<String, dynamic> toJson() {
     if (kind == 'metric') {
       return {'kind': 'metric', 'metric_id': metricId, 'params': params};
     }
-    return {'kind': 'insight', 'insight_id': insightId};
+    return {'kind': 'snapshot'};
   }
 
   bool get isMetric => kind == 'metric';
-  bool get isInsight => kind == 'insight';
+  bool get isSnapshot => kind == 'snapshot';
 }
 
 class DashboardWidget {
@@ -334,42 +361,34 @@ class WidgetMetricRegistry {
           );
 }
 
-class SavedInsight {
-  const SavedInsight({
-    required this.id,
-    required this.title,
-    required this.widget,
-    required this.createdAt,
-    this.sourceMessageId,
-  });
-
-  final int id;
-  final String title;
-  final WidgetPayload widget;
-  final int? sourceMessageId;
-  final String createdAt;
-
-  factory SavedInsight.fromJson(Map<String, dynamic> j) => SavedInsight(
-        id: j['id'] as int,
-        title: j['title'] as String,
-        widget: WidgetPayload.fromJson(j['widget'] as Map<String, dynamic>),
-        sourceMessageId: j['source_message_id'] as int?,
-        createdAt: j['created_at'] as String,
-      );
-}
-
 /// Discriminated union of widget data shapes returned by
 /// `GET /dashboards/:id/widgets/:wid/data`. Frontend renderers branch on
 /// `type` (== `widget.type`) and read the matching payload — never on the
-/// data_source kind.
+/// data_source kind. [isSnapshot] is true when the underlying widget is
+/// frozen bytes (saved from a chat answer that no curated metric could
+/// express); the chrome shows a "Snapshot" badge and disables refresh
+/// when true.
 class WidgetData {
-  const WidgetData({required this.type, required this.data});
+  const WidgetData({
+    required this.type,
+    required this.data,
+    this.isSnapshot = false,
+    this.viaChat = false,
+  });
   final String type;
   final Map<String, dynamic> data;
+  final bool isSnapshot;
+
+  /// True when the widget originated from the Insights chat
+  /// "Save to dashboard…" flow. Drives a subtle green footer on the
+  /// dashboard chrome so the user can tell its provenance.
+  final bool viaChat;
 
   factory WidgetData.fromJson(Map<String, dynamic> j) => WidgetData(
         type: j['type'] as String,
         data: Map<String, dynamic>.from(j['data'] as Map<String, dynamic>),
+        isSnapshot: j['is_snapshot'] as bool? ?? false,
+        viaChat: j['via_chat'] as bool? ?? false,
       );
 
   // Type-specific accessors. Cast-shaped — keeps the renderer files small.
@@ -391,6 +410,11 @@ class WidgetData {
 
   String get queryValueFormat => data['format'] as String? ?? 'number';
 
+  /// Optional per-period rate label — e.g. `"month"` → rendered as
+  /// "$999 / month" beside the headline number. Only set on metrics
+  /// whose value is genuinely rate-shaped (currently `average_per_period`).
+  String? get queryUnit => data['unit'] as String?;
+
   Map<String, dynamic>? get queryComparison =>
       data['comparison'] is Map<String, dynamic>
           ? data['comparison'] as Map<String, dynamic>
@@ -404,9 +428,11 @@ class WidgetData {
 
   // Convenience to render the chart at flexible (parent-bound) height.
   /// Discards [TimeseriesChart.height] argument so it fills its parent.
+  /// Hides the chart's internal title — the surrounding [WidgetCard]
+  /// titlebar already shows it.
   Widget? buildChartFlex() {
     if (data['chart'] is! Map) return null;
-    return asChart().buildChart(height: null);
+    return asChart().buildChart(height: null, showTitle: false);
   }
 }
 

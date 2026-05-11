@@ -37,7 +37,10 @@ class ChartSpec {
   /// Convert into a renderable [TimeseriesChart]. Pass `height: null` to
   /// have the chart flex to fill its parent (e.g. inside a dashboard grid
   /// cell that already provides bounded height via Expanded/SizedBox).
-  Widget buildChart({double? height = 240}) {
+  /// Pass `showTitle: false` when the surrounding chrome already shows
+  /// the title (the `WidgetCard` titlebar does, so the dashboard path
+  /// always wants this).
+  Widget buildChart({double? height = 240, bool showTitle = true}) {
     return TimeseriesChart(
       title: title,
       series: series.map((s) => s.toChartSeries()).toList(),
@@ -45,6 +48,7 @@ class ChartSpec {
       yAxisLabel: yAxisLabel,
       xTickLabels: xTickLabels,
       height: height,
+      showTitle: showTitle,
     );
   }
 

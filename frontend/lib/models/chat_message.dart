@@ -13,6 +13,7 @@ class ChatMessage {
   ChatMessage({
     required this.role,
     required this.text,
+    this.id,
     this.widget,
     this.pending = false,
     this.errored = false,
@@ -20,6 +21,7 @@ class ChatMessage {
 
   ChatMessage.user(this.text)
       : role = ChatRole.user,
+        id = null,
         widget = null,
         pending = false,
         errored = false;
@@ -27,10 +29,16 @@ class ChatMessage {
   ChatMessage.assistantPending()
       : role = ChatRole.assistant,
         text = '',
+        id = null,
         widget = null,
         pending = true,
         errored = false;
 
+  /// Server-assigned message id. Null for optimistic local turns that
+  /// haven't been acknowledged yet, and for help-text / error stand-ins
+  /// the client invents. The "Save to dashboard" flow needs this to call
+  /// `POST /chat/messages/{id}/save-to-dashboard`.
+  final int? id;
   final ChatRole role;
   final String text;
   final WidgetPayload? widget;
@@ -38,12 +46,14 @@ class ChatMessage {
   final bool errored;
 
   ChatMessage copyWith({
+    int? id,
     String? text,
     WidgetPayload? widget,
     bool? pending,
     bool? errored,
   }) =>
       ChatMessage(
+        id: id ?? this.id,
         role: role,
         text: text ?? this.text,
         widget: widget ?? this.widget,

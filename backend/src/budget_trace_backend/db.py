@@ -119,10 +119,11 @@ CREATE INDEX IF NOT EXISTS idx_chat_msg_session ON chat_messages(session_id, seq
 CREATE INDEX IF NOT EXISTS idx_chat_session_updated ON chat_sessions(updated_at DESC);
 
 -- Widgets feature. A user owns N dashboards; each dashboard owns N widgets
--- placed on a free-form grid (layout_{x,y,w,h} in grid units). A widget pulls
--- its data from either a curated metric (server-resolved live aggregation) or
--- a saved_insight (a frozen ChartSpec snapshot captured from the Insights
--- chat — no AI replay on refresh).
+-- placed on a free-form grid (layout_{x,y,w,h} in grid units). A widget
+-- pulls its data from either a curated metric (server-resolved live
+-- aggregation that follows the dashboard's time range) or a snapshot
+-- (frozen bytes stored inline on the widget via `snapshot_json` —
+-- ignores the dashboard's time range).
 CREATE TABLE IF NOT EXISTS dashboards (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -140,6 +141,11 @@ CREATE TABLE IF NOT EXISTS dashboards (
 
 CREATE INDEX IF NOT EXISTS idx_dashboards_user ON dashboards(user_id, updated_at DESC);
 
+-- A widget pulls its data from either a curated metric (server-resolved
+-- live aggregation that follows the dashboard's time range) or a snapshot
+-- (frozen bytes lifted from an Insights chat answer that no registry
+-- metric could express). Snapshot widgets store their payload inline in
+-- `snapshot_json` and ignore the dashboard time range.
 CREATE TABLE IF NOT EXISTS widgets (
     id                INTEGER PRIMARY KEY AUTOINCREMENT,
     dashboard_id      INTEGER NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
@@ -151,25 +157,29 @@ CREATE TABLE IF NOT EXISTS widgets (
     layout_h          INTEGER NOT NULL,
     data_source_json  TEXT    NOT NULL,
     config_json       TEXT    NOT NULL,
+    snapshot_json     TEXT,
+    via_chat          INTEGER NOT NULL DEFAULT 0,
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_widgets_dashboard ON widgets(dashboard_id);
 
--- Frozen widget snapshot saved off an assistant chat message. `widget_json`
--- is the polymorphic payload (any widget type); `chart_json` is the legacy
--- timeseries-only column kept nullable for backward compatibility.
-CREATE TABLE IF NOT EXISTS saved_insights (
-    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title              TEXT    NOT NULL,
-    source_message_id  INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL,
-    chart_json         TEXT,
-    created_at         TEXT    NOT NULL
+-- One row per AI assistant message that emitted a snapshot-only widget
+-- (no registry metric could express the answer). Read it back to find
+-- gaps in the curated-metric registry. The `fallback_reason` field is
+-- what the AI told us about why it had to go novel.
+CREATE TABLE IF NOT EXISTS ai_widget_audit (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id      INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE,
+    widget_type     TEXT    NOT NULL,
+    fallback_reason TEXT,
+    user_question   TEXT,
+    created_at      TEXT    NOT NULL
 );
 
-CREATE INDEX IF NOT EXISTS idx_saved_insights_user ON saved_insights(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_ai_widget_audit_created_at
+    ON ai_widget_audit(created_at DESC);
 """
 
 
@@ -195,6 +205,11 @@ def connect(path: Path | None = None) -> Iterator[sqlite3.Connection]:
 
 
 def init_schema(conn: sqlite3.Connection) -> None:
+    # Hard cutover: the saved_insights table was a frozen-bytes inbox for
+    # chat-saved widgets; the model now stores snapshots inline on the
+    # widget row itself. Drop the legacy table on every boot so leftover
+    # rows from earlier dev sessions can't be referenced.
+    conn.executescript("DROP TABLE IF EXISTS saved_insights;")
     conn.executescript(SCHEMA)
     # Forward-compat for any DB created before `selected_model` existed.
     _add_column_if_missing(conn, "users", "selected_model", "TEXT")
@@ -210,19 +225,20 @@ def init_schema(conn: sqlite3.Connection) -> None:
     )
     _add_column_if_missing(conn, "dashboards", "time_range_start", "TEXT")
     _add_column_if_missing(conn, "dashboards", "time_range_end", "TEXT")
-    # Generalised widget payload on assistant chat messages and saved
-    # insights. The legacy `chart_json` column carries a ChartSpec
-    # (timeseries-only); `widget_json` carries a richer `{type, title,
-    # data}` payload that can describe any widget type. On read we prefer
-    # widget_json and synthesise one from chart_json if absent.
+    # Generalised widget payload on assistant chat messages. The legacy
+    # `chart_json` column carries a ChartSpec (timeseries-only);
+    # `widget_json` carries a richer `{type, title, data, metric_id?,
+    # metric_params?}` payload that can describe any widget type and
+    # capture its re-runnable query when one exists.
     _add_column_if_missing(conn, "chat_messages", "widget_json", "TEXT")
-    _add_column_if_missing(conn, "saved_insights", "widget_json", "TEXT")
-    # The original `saved_insights.chart_json` column was declared NOT
-    # NULL; with the generic `widget_json` column now carrying the
-    # canonical payload, chart_json needs to be nullable. SQLite has no
-    # ALTER COLUMN, so we rebuild the table if a legacy DB still has
-    # the constraint.
-    _relax_saved_insights_chart_json(conn)
+    # Snapshot payload for widgets backed by a frozen chat answer. NULL
+    # for kind:metric widgets.
+    _add_column_if_missing(conn, "widgets", "snapshot_json", "TEXT")
+    # 1 when the widget was created via the Insights chat
+    # save-to-dashboard flow (regardless of metric vs. snapshot kind).
+    # Surfaced in the UI as a small green "from Insights" footer so the
+    # user can tell where the widget came from.
+    _add_column_if_missing(conn, "widgets", "via_chat", "INTEGER NOT NULL DEFAULT 0")
     # Hard cutover: drop legacy Anthropic-specific columns if they exist.
     # SQLite >= 3.35 supports DROP COLUMN. The check is idempotent so this
     # is safe to run on already-migrated DBs and on fresh ones.
@@ -248,39 +264,6 @@ def _drop_column_if_present(
     cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column in cols:
         conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
-
-
-def _relax_saved_insights_chart_json(conn: sqlite3.Connection) -> None:
-    """SQLite has no ALTER COLUMN to drop a NOT NULL. Detect a legacy
-    NOT NULL `chart_json` column on `saved_insights` and rebuild the
-    table without it. No-op when the column is already nullable."""
-    info = conn.execute("PRAGMA table_info(saved_insights)").fetchall()
-    chart_col = next((c for c in info if c["name"] == "chart_json"), None)
-    if chart_col is None or not chart_col["notnull"]:
-        return
-    # `widget_json` may already have been added by the previous call;
-    # detect it so we copy it into the rebuilt table.
-    has_widget = any(c["name"] == "widget_json" for c in info)
-    cols = "id, user_id, title, source_message_id, chart_json, created_at"
-    if has_widget:
-        cols += ", widget_json"
-    new_widget_col = ",\n            widget_json        TEXT" if has_widget else ""
-    conn.executescript(f"""
-        CREATE TABLE saved_insights_new (
-            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-            title              TEXT    NOT NULL,
-            source_message_id  INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL,
-            chart_json         TEXT,
-            created_at         TEXT    NOT NULL{new_widget_col}
-        );
-        INSERT INTO saved_insights_new ({cols})
-            SELECT {cols} FROM saved_insights;
-        DROP TABLE saved_insights;
-        ALTER TABLE saved_insights_new RENAME TO saved_insights;
-        CREATE INDEX IF NOT EXISTS idx_saved_insights_user
-            ON saved_insights(user_id, created_at DESC);
-    """)
 
 
 def ensure_root_category(conn: sqlite3.Connection) -> None:

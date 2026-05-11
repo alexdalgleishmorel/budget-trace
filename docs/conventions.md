@@ -59,7 +59,7 @@ Two flags today, both per-user (single user today, id=1), DB-backed as JSON in `
   - `POST /transactions/import?parser=ai` returns 200 instead of 403.
   - `POST /chat/sessions/{id}/messages` (the only AI-calling chat route) returns 200 instead of 403; historical reads stay open regardless.
   - Every successful import (CSV or AI) triggers auto-categorization on the freshly inserted rows. CSV-only flows still work with `ai` off.
-- **`widgets`** — on by default (configured in [`features.py::DEFAULT_ON_FLAGS`](../backend/src/budget_trace_backend/features.py)). When on, the Widgets tab is reachable and every `/dashboards/*`, `/widget-metrics`, `/saved-insights/*` route returns 200 instead of 403. When off, the tab is hidden and the routes 403 with `feature_disabled`. See [widgets.md](widgets.md).
+- **`widgets`** — on by default (configured in [`features.py::DEFAULT_ON_FLAGS`](../backend/src/budget_trace_backend/features.py)). When on, the Widgets tab is reachable and every `/dashboards/*`, `/widget-metrics`, `/chat/messages/{id}/save-to-dashboard`, `/ai-widget-audit` route returns 200 instead of 403. When off, the tab is hidden and the routes 403 with `feature_disabled`. See [widgets.md](widgets.md).
 
 Flip either via the `/me` API (`PATCH /me {"features": {"ai": true}}` etc.) or via the `BUDGET_TRACE_FEATURES=ai,widgets` env var (comma-separated; still wins for local dev / tests). See [account.md](account.md).
 

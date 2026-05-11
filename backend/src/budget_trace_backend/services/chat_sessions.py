@@ -104,6 +104,24 @@ def get_messages(session_id: int) -> list[dict]:
         return [_row_to_message(r) for r in rows]
 
 
+def get_message(message_id: int) -> dict | None:
+    """Fetch one message by id (across sessions). Used by the
+    save-chat-widget-to-dashboard route."""
+    _ensure_schema()
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT id, sequence, role, text, chart_json, widget_json, errored, created_at
+              FROM chat_messages
+             WHERE id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return _row_to_message(row)
+
+
 def _row_to_message(r: Any) -> dict:
     # Prefer `widget_json` (new). For pre-widget rows, synthesise a
     # timeseries widget from the legacy `chart_json` so the frontend

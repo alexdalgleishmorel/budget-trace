@@ -50,6 +50,7 @@ class TimeseriesChart extends StatelessWidget {
     this.yAxisLabel,
     this.xTickLabels,
     this.height,
+    this.showTitle = true,
   });
 
   final String title;
@@ -65,6 +66,10 @@ class TimeseriesChart extends StatelessWidget {
   /// Null = flex to fill parent (use inside a sized box / Expanded).
   /// Non-null = fixed height (use inside scroll views).
   final double? height;
+
+  /// When false, the chart drops its own title row. Used inside a
+  /// `WidgetCard` where the chrome's titlebar already shows the title.
+  final bool showTitle;
 
   @override
   Widget build(BuildContext context) {
@@ -97,17 +102,18 @@ class TimeseriesChart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  color: bt.ink,
-                )),
+            if (showTitle)
+              Text(title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: bt.ink,
+                  )),
             if (yAxisLabel != null) ...[
-              const SizedBox(height: 2),
+              if (showTitle) const SizedBox(height: 2),
               BudgetLabel(yAxisLabel!),
             ],
-            const SizedBox(height: 10),
+            if (showTitle || yAxisLabel != null) const SizedBox(height: 10),
             if (height != null)
               SizedBox(height: height, child: painter)
             else

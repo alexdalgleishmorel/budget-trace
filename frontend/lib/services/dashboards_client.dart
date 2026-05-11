@@ -71,21 +71,22 @@ class DashboardsClient {
   Future<DashboardWidget> createWidget(
     int dashboardId, {
     required String type,
-    required String title,
-    required WidgetLayout layout,
     required WidgetDataSource dataSource,
+    WidgetLayout? layout,
     Map<String, dynamic> config = const {},
   }) async {
+    final body = <String, dynamic>{
+      'type': type,
+      'data_source': dataSource.toJson(),
+      'config': config,
+    };
+    // Omit layout to let the server place the widget below the
+    // existing grid at the type's min size.
+    if (layout != null) body['layout'] = layout.toJson();
     final resp = await _client.post(
       Uri.parse('$apiBaseUrl/dashboards/$dashboardId/widgets'),
       headers: _jsonHeaders,
-      body: jsonEncode({
-        'type': type,
-        'title': title,
-        'layout': layout.toJson(),
-        'data_source': dataSource.toJson(),
-        'config': config,
-      }),
+      body: jsonEncode(body),
     );
     return DashboardWidget.fromJson(
         decodeOrThrow(resp) as Map<String, dynamic>);
@@ -100,6 +101,9 @@ class DashboardsClient {
     Map<String, dynamic>? config,
   }) async {
     final body = <String, dynamic>{};
+    // Empty string is meaningful — it tells the backend to reset to the
+    // auto-derived `{Type} : {Metric}` title — so pass it through even
+    // when empty as long as the caller explicitly provided it.
     if (title != null) body['title'] = title;
     if (layout != null) body['layout'] = layout.toJson();
     if (dataSource != null) body['data_source'] = dataSource.toJson();
@@ -152,38 +156,24 @@ class DashboardsClient {
     return WidgetData.fromJson(decodeOrThrow(resp) as Map<String, dynamic>);
   }
 
-  // ── Saved insights ─────────────────────────────────────────────────────────
+  // ── Save chat widget to a dashboard ───────────────────────────────────────
 
-  Future<List<SavedInsight>> listSavedInsights() async {
-    final resp = await _client.get(Uri.parse('$apiBaseUrl/saved-insights'));
-    final body = decodeOrThrow(resp) as List;
-    return body
-        .map((j) => SavedInsight.fromJson(j as Map<String, dynamic>))
-        .toList();
-  }
-
-  Future<SavedInsight> createSavedInsight({
-    required String title,
-    required WidgetPayload widget,
-    int? sourceMessageId,
+  /// Save the widget attached to an AI assistant chat message onto a
+  /// dashboard. When the source widget carries `metric_id` /
+  /// `metric_params`, the created dashboard widget is `kind:"metric"`
+  /// and follows the dashboard's time range; otherwise it is
+  /// `kind:"snapshot"` and renders the frozen `data` as-is.
+  Future<DashboardWidget> saveChatWidgetToDashboard({
+    required int messageId,
+    required int dashboardId,
   }) async {
-    final body = <String, dynamic>{
-      'title': title,
-      'widget': widget.toJson(),
-    };
-    if (sourceMessageId != null) body['source_message_id'] = sourceMessageId;
     final resp = await _client.post(
-      Uri.parse('$apiBaseUrl/saved-insights'),
+      Uri.parse('$apiBaseUrl/chat/messages/$messageId/save-to-dashboard'),
       headers: _jsonHeaders,
-      body: jsonEncode(body),
+      body: jsonEncode({'dashboard_id': dashboardId}),
     );
-    return SavedInsight.fromJson(decodeOrThrow(resp) as Map<String, dynamic>);
-  }
-
-  Future<void> deleteSavedInsight(int id) async {
-    final resp =
-        await _client.delete(Uri.parse('$apiBaseUrl/saved-insights/$id'));
-    decodeOrThrow(resp);
+    return DashboardWidget.fromJson(
+        decodeOrThrow(resp) as Map<String, dynamic>);
   }
 
   // ── Metric registry ────────────────────────────────────────────────────────

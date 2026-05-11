@@ -11,6 +11,7 @@ import '../widgets/ai_spend_chip.dart';
 import '../widgets/cat_icon.dart';
 import '../widgets/dash_widgets/widget_card.dart';
 import '../widgets/mobile_settings_icon.dart';
+import 'dashboard_screen.dart';
 import 'insights_history_view.dart';
 
 /// Insights tab — chat with the AI about your spending.
@@ -81,41 +82,71 @@ class _InsightsScreenState extends State<InsightsScreen> {
     super.dispose();
   }
 
-  Future<void> _saveWidget(WidgetPayload payload) async {
-    final ctrl = TextEditingController(text: payload.title);
-    final title = await showDialog<String>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Save as widget'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Title'),
-          onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
-        ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.of(context).pop(ctrl.text.trim()),
-              child: const Text('Save')),
-        ],
-      ),
-    );
-    if (title == null || title.isEmpty) return;
-    // Keep the widget's own title in sync with the user's choice — the
-    // dashboard renderer uses widget.title in the saved-insight body.
-    final widgetWithTitle = WidgetPayload(
-      type: payload.type, title: title, data: payload.data,
-    );
+  Future<void> _saveWidget(ChatMessage message) async {
+    final payload = message.widget;
+    final messageId = message.id;
+    if (payload == null || messageId == null) return;
+
+    final dashboardId = await _showSaveToDashboardSheet(payload);
+    if (dashboardId == null) return;
+
     try {
-      await _dashboardsClient.createSavedInsight(
-        title: title, widget: widgetWithTitle,
+      await _dashboardsClient.saveChatWidgetToDashboard(
+        messageId: messageId,
+        dashboardId: dashboardId,
       );
       if (!mounted) return;
+      final bt = context.bt;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Saved “$title” — pick it from the Widgets tab.')),
+        SnackBar(
+          // Explicit duration — the default 4s sometimes doesn't fire
+          // when the snackbar contains a custom Row layout. Keep it
+          // bounded so the bar always clears itself.
+          duration: const Duration(seconds: 6),
+          // Manual dismiss icon as a safety net — the auto-timer can be
+          // finicky with custom `content`, and the user shouldn't be
+          // stuck waiting if it stalls.
+          showCloseIcon: true,
+          // SnackBarAction can only colour its label text; to get a
+          // filled-green CTA matching the AiPromo button we drop in a
+          // custom Row instead.
+          content: Row(
+            children: [
+              const Expanded(
+                child: Text('Added to dashboard'),
+              ),
+              const SizedBox(width: 12),
+              GestureDetector(
+                onTap: () {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => DashboardScreen(
+                      client: _dashboardsClient,
+                      dashboardId: dashboardId,
+                    ),
+                  ));
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 7),
+                  decoration: BoxDecoration(
+                    color: bt.pos,
+                    borderRadius: const BorderRadius.all(Radius.circular(8)),
+                  ),
+                  child: Text(
+                    'View dashboard',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: bt.bg,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
@@ -123,6 +154,111 @@ class _InsightsScreenState extends State<InsightsScreen> {
         SnackBar(content: Text('Could not save: $e')),
       );
     }
+  }
+
+  /// Returns the chosen dashboard id, or null on cancel. Fetches the
+  /// user's dashboards fresh so the picker can't show stale entries.
+  Future<int?> _showSaveToDashboardSheet(WidgetPayload payload) async {
+    List<DashboardSummary> dashboards;
+    try {
+      dashboards = await _dashboardsClient.list();
+    } catch (e) {
+      if (!mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not load dashboards: $e')),
+      );
+      return null;
+    }
+    if (!mounted) return null;
+
+    return showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Save to dashboard'),
+        content: SizedBox(
+          width: 360,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: Text(
+                  payload.isSnapshot
+                      ? 'This widget is a snapshot — its data is frozen and '
+                          "won't follow the dashboard's time range."
+                      : "Re-runs against the dashboard's time range on every "
+                          'refresh.',
+                  style: TextStyle(fontSize: 12, color: context.bt.ink3),
+                ),
+              ),
+              Flexible(
+                child: ListView(
+                  shrinkWrap: true,
+                  children: [
+                    for (final d in dashboards)
+                      ListTile(
+                        dense: true,
+                        title: Text(d.name),
+                        onTap: () => Navigator.of(ctx).pop(d.id),
+                      ),
+                    ListTile(
+                      dense: true,
+                      title: const Text('Create new dashboard…'),
+                      onTap: () async {
+                        final name = await _promptForNewDashboardName(ctx);
+                        if (name == null || name.isEmpty) return;
+                        try {
+                          final created =
+                              await _dashboardsClient.create(name: name);
+                          if (!ctx.mounted) return;
+                          Navigator.of(ctx).pop(created.id);
+                        } catch (e) {
+                          if (!ctx.mounted) return;
+                          ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(content: Text('Could not create: $e')),
+                          );
+                        }
+                      },
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<String?> _promptForNewDashboardName(BuildContext ctx) {
+    final ctrl = TextEditingController();
+    return showDialog<String>(
+      context: ctx,
+      builder: (innerCtx) => AlertDialog(
+        title: const Text('New dashboard'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Name'),
+          onSubmitted: (v) => Navigator.of(innerCtx).pop(v.trim()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(innerCtx).pop(),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.of(innerCtx).pop(ctrl.text.trim()),
+              child: const Text('Create')),
+        ],
+      ),
+    );
   }
 
   Future<void> _startNewChat() async {
@@ -150,25 +286,26 @@ class _InsightsScreenState extends State<InsightsScreen> {
   Future<void> _loadSession(int sessionId) async {
     setState(() => _busy = true);
     try {
-      final results = await Future.wait([
-        _client.getMessages(sessionId),
-        _client.listSessions(),
-      ]);
-      final msgs = results[0] as List<ChatMessage>;
-      final sessions = results[1] as List;
-      final spent = sessions
-          .firstWhere(
-            (s) => (s as dynamic).id == sessionId,
-            orElse: () => null,
-          );
+      // Fetch messages and the session list in parallel so we can both
+      // populate the transcript and pick up the running spend total.
+      final msgsFuture = _client.getMessages(sessionId);
+      final sessionsFuture = _client.listSessions();
+      final msgs = await msgsFuture;
+      final sessions = await sessionsFuture;
+      double spent = 0.0;
+      for (final s in sessions) {
+        if (s.id == sessionId) {
+          spent = s.spentUsd;
+          break;
+        }
+      }
       if (!mounted) return;
       setState(() {
         _activeSessionId = sessionId;
         _messages
           ..clear()
           ..addAll(msgs);
-        _sessionSpentUsd =
-            spent == null ? 0.0 : (spent as dynamic).spentUsd as double;
+        _sessionSpentUsd = spent;
       });
       _scrollToBottom();
     } catch (e) {
@@ -480,7 +617,7 @@ class _ChatPanel extends StatelessWidget {
   final bool busy;
   final bool apiKeySet;
   final Future<void> Function() onOpenAccount;
-  final void Function(WidgetPayload) onSaveWidget;
+  final Future<void> Function(ChatMessage) onSaveWidget;
 
   @override
   Widget build(BuildContext context) {
@@ -682,7 +819,7 @@ class _TranscriptItem extends StatelessWidget {
   });
   final ChatMessage message;
   final BudgetTheme bt;
-  final void Function(WidgetPayload) onSaveWidget;
+  final Future<void> Function(ChatMessage) onSaveWidget;
 
   /// Fixed render height for AI-produced widgets in the transcript.
   /// Same default as the mobile dashboard list — tall enough for charts
@@ -750,18 +887,23 @@ class _TranscriptItem extends StatelessWidget {
                 const SizedBox(height: 6),
                 Align(
                   alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
-                    onPressed: () => onSaveWidget(payload),
-                    icon: BudgetIcons.build('plus',
-                        size: 12, color: bt.ink3),
-                    label: Text('Save as widget',
-                        style: TextStyle(fontSize: 11, color: bt.ink3)),
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      minimumSize: const Size(0, 28),
-                    ),
-                  ),
+                  // The save button only appears for server-acknowledged
+                  // messages — optimistic / help-text / error placeholders
+                  // have no `id` to reference.
+                  child: message.id == null
+                      ? const SizedBox.shrink()
+                      : TextButton.icon(
+                          onPressed: () => onSaveWidget(message),
+                          icon: BudgetIcons.build('plus',
+                              size: 12, color: bt.pos),
+                          label: Text('Save to dashboard…',
+                              style: TextStyle(fontSize: 11, color: bt.pos)),
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
+                            minimumSize: const Size(0, 28),
+                          ),
+                        ),
                 ),
               ],
             ],
@@ -775,7 +917,7 @@ class _TranscriptItem extends StatelessWidget {
 /// Build a stand-in [DashboardWidget] so [WidgetCard] can render an AI
 /// payload without it being persisted to the dashboards layer.
 DashboardWidget _fakeDashboardWidget(WidgetPayload p) => DashboardWidget(
-      id: -1, dashboardId: -1, type: p.type, title: p.title,
+      id: -1, dashboardId: -1, type: p.type, title: '',
       layout: const WidgetLayout(x: 0, y: 0, w: 4, h: 3),
       dataSource: const WidgetDataSource.metric(metricId: 'preview'),
       config: const {},

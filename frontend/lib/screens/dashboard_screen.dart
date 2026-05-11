@@ -31,12 +31,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   late final CategoriesClient _categoriesClient = CategoriesClient();
 
   Dashboard? _dashboard;
-  List<DashboardSummary>? _allDashboards;
   WidgetMetricRegistry? _registry;
-  List<SavedInsight>? _savedInsights;
-  // Category paths fetched once at load — feed the drawer's category-path
-  // dropdown. Includes the synthetic "Unknown" path (= uncategorised).
-  List<String> _categoryPaths = const [];
+  // Category rows fetched once at load — feed the drawer's category
+  // dropdown. Drawer filters out the synthetic "Unknown" path and (for
+  // drill-down params) any leaf categories using `isUnknown` / `isLeaf`.
+  List<CategoryDto> _categories = const [];
   String? _error;
 
   Timer? _layoutDebounce;
@@ -60,24 +59,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
     try {
       final results = await Future.wait([
         widget.client.get(widget.dashboardId),
-        widget.client.list(),
         widget.client.listMetrics(),
-        widget.client.listSavedInsights(),
         _categoriesClient.list(),
       ]);
       if (!mounted) return;
-      final cats = (results[4] as List<CategoryDto>);
-      // Backend "Unknown" path is overloaded to mean "uncategorised
-      // transactions"; the categories endpoint returns it as a regular row
-      // with `isUnknown=true`. Drop other system rows, surface the rest in
-      // their natural tree order.
-      final paths = cats.map((c) => c.path).toList();
+      final cats = (results[2] as List<CategoryDto>);
       setState(() {
         _dashboard = results[0] as Dashboard;
-        _allDashboards = results[1] as List<DashboardSummary>;
-        _registry = results[2] as WidgetMetricRegistry;
-        _savedInsights = results[3] as List<SavedInsight>;
-        _categoryPaths = paths;
+        _registry = results[1] as WidgetMetricRegistry;
+        _categories = cats;
         _error = null;
       });
     } catch (e) {
@@ -95,28 +85,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _switchTo(int id) async {
-    if (id == _id) return;
-    if (!mounted) return;
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => DashboardScreen(client: widget.client, dashboardId: id),
-    ));
-  }
-
-  Future<void> _rename() async {
-    final current = _dashboard?.name ?? '';
-    final next = await _promptName(
-        context, title: 'Rename dashboard', initial: current);
-    if (next == null || next.isEmpty || next == current) return;
-    try {
-      await widget.client.update(_id, name: next);
-      if (mounted) await _refreshDashboard();
-    } catch (e) {
-      if (!mounted) return;
-      _showError('Rename failed: $e');
-    }
-  }
-
   Future<void> _setTimeRange(DashboardTimeRange next) async {
     try {
       await widget.client.update(_id, timeRange: next);
@@ -127,36 +95,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
     }
   }
 
-  Future<void> _delete() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Delete dashboard?'),
-        content: Text('“${_dashboard?.name ?? ''}” and all its widgets will be removed.'),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('Delete')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    try {
-      await widget.client.delete(_id);
-      if (mounted) Navigator.of(context).pop();
-    } catch (e) {
-      if (!mounted) return;
-      _showError('Delete failed: $e');
-    }
-  }
-
   Future<void> _addWidget({DashboardWidget? existing}) async {
     final registry = _registry;
     if (registry == null) return;
-    final saved = _savedInsights ?? const [];
     final result = await showModalBottomSheet<DashboardWidget>(
       context: context,
       isScrollControlled: true,
@@ -168,8 +109,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
           dashboardId: _id,
           client: widget.client,
           registry: registry,
-          savedInsights: saved,
-          categoryPaths: _categoryPaths,
+          categories: _categories,
           initial: existing,
         ),
       ),
@@ -285,11 +225,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   padding: padding,
                   child: _Header(
                     dashboard: dash,
-                    all: _allDashboards ?? const [],
                     presets: _registry?.timeRangePresets ?? const [],
-                    onSwitch: _switchTo,
-                    onRename: _rename,
-                    onDelete: _delete,
                     onAdd: () => _addWidget(),
                     onBack: () => Navigator.of(context).pop(),
                     onTimeRangeChanged: _setTimeRange,
@@ -340,22 +276,14 @@ class _DashboardScreenState extends State<DashboardScreen> {
 class _Header extends StatelessWidget {
   const _Header({
     required this.dashboard,
-    required this.all,
     required this.presets,
-    required this.onSwitch,
-    required this.onRename,
-    required this.onDelete,
     required this.onAdd,
     required this.onBack,
     required this.onTimeRangeChanged,
   });
 
   final Dashboard dashboard;
-  final List<DashboardSummary> all;
   final List<String> presets;
-  final void Function(int) onSwitch;
-  final VoidCallback onRename;
-  final VoidCallback onDelete;
   final VoidCallback onAdd;
   final VoidCallback onBack;
   final void Function(DashboardTimeRange) onTimeRangeChanged;
@@ -363,88 +291,29 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 8,
-      runSpacing: 8,
+    // Action bar: back on the left, "Add widget" visually centred,
+    // time picker on the right. The Stack lets the centred button
+    // ignore the asymmetric widths of the side controls so it sits
+    // at the true horizontal centre. Rename / delete live on the
+    // Widgets overview page now, not in this header.
+    return Stack(
+      alignment: Alignment.center,
       children: [
         Row(
-          mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
               onPressed: onBack,
               tooltip: 'All dashboards',
-              icon: BudgetIcons.build('chevron-left', size: 18, color: bt.ink2),
+              icon: BudgetIcons.build(
+                  'chevron-left', size: 18, color: bt.ink2),
             ),
-            PopupMenuButton<_HeaderAction>(
-              offset: const Offset(0, 36),
-              tooltip: 'Switch dashboard',
-              itemBuilder: (_) {
-                return [
-                  for (final d in all)
-                    PopupMenuItem<_HeaderAction>(
-                      value: _HeaderAction.switchTo(d.id),
-                      child: Row(
-                        children: [
-                          if (d.id == dashboard.id)
-                            BudgetIcons.build('check',
-                                size: 14, color: bt.ink2)
-                          else
-                            const SizedBox(width: 14),
-                          const SizedBox(width: 8),
-                          Expanded(child: Text(d.name)),
-                        ],
-                      ),
-                    ),
-                  const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    value: _HeaderAction.rename(),
-                    child: Text('Rename…'),
-                  ),
-                  PopupMenuItem(
-                    value: const _HeaderAction.deleteDashboard(),
-                    child: Text('Delete dashboard',
-                        style: TextStyle(color: bt.neg)),
-                  ),
-                ];
-              },
-              onSelected: (a) {
-                switch (a.kind) {
-                  case 'switch':
-                    onSwitch(a.dashboardId!);
-                  case 'rename':
-                    onRename();
-                  case 'delete':
-                    onDelete();
-                }
-              },
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 280),
-                    child: Text(
-                      dashboard.name,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.02,
-                        color: bt.ink,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  BudgetIcons.build('chevron-down', size: 16, color: bt.ink3),
-                ],
-              ),
+            const Spacer(),
+            _TimeRangePicker(
+              presets: presets,
+              current: dashboard.timeRange,
+              onChanged: onTimeRangeChanged,
             ),
           ],
-        ),
-        _TimeRangePicker(
-          presets: presets,
-          current: dashboard.timeRange,
-          onChanged: onTimeRangeChanged,
         ),
         FilledButton.icon(
           onPressed: onAdd,
@@ -554,21 +423,6 @@ class _TimeRangePicker extends StatelessWidget {
   }
 }
 
-class _HeaderAction {
-  const _HeaderAction.switchTo(int id)
-      : kind = 'switch',
-        dashboardId = id;
-  const _HeaderAction.rename()
-      : kind = 'rename',
-        dashboardId = null;
-  const _HeaderAction.deleteDashboard()
-      : kind = 'delete',
-        dashboardId = null;
-
-  final String kind;
-  final int? dashboardId;
-}
-
 class _EmptyDashboard extends StatelessWidget {
   const _EmptyDashboard({required this.onAdd});
   final VoidCallback onAdd;
@@ -589,8 +443,8 @@ class _EmptyDashboard extends StatelessWidget {
                     fontSize: 14, fontWeight: FontWeight.w600, color: bt.ink)),
             const SizedBox(height: 6),
             Text(
-              'Add a widget to start visualizing. You can pick from curated '
-              'metrics or use insights you saved from the Insights tab.',
+              'Add a widget to start visualizing — pick from the curated '
+              'metrics, or save one from the Insights tab.',
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 12, color: bt.ink4, height: 1.5),
             ),
@@ -658,30 +512,3 @@ class _MobileDashboardList extends StatelessWidget {
   }
 }
 
-Future<String?> _promptName(
-  BuildContext context, {
-  required String title,
-  String initial = '',
-}) async {
-  final ctrl = TextEditingController(text: initial);
-  return showDialog<String>(
-    context: context,
-    builder: (_) => AlertDialog(
-      title: Text(title),
-      content: TextField(
-        controller: ctrl,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'Name'),
-        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
-      ),
-      actions: [
-        TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel')),
-        FilledButton(
-            onPressed: () => Navigator.of(context).pop(ctrl.text.trim()),
-            child: const Text('Save')),
-      ],
-    ),
-  );
-}

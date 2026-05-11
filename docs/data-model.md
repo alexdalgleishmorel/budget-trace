@@ -14,9 +14,8 @@ erDiagram
     chat_sessions ||--o{ ai_usage      : "chat_session_id (ON DELETE SET NULL)"
     users ||--o{ ai_provider_keys : "user_id (ON DELETE CASCADE)"
     users ||--o{ dashboards : "user_id (ON DELETE CASCADE)"
-    users ||--o{ saved_insights : "user_id (ON DELETE CASCADE)"
     dashboards ||--o{ widgets : "dashboard_id (ON DELETE CASCADE)"
-    chat_messages ||--o{ saved_insights : "source_message_id (ON DELETE SET NULL)"
+    chat_messages ||--o{ ai_widget_audit : "message_id (ON DELETE CASCADE)"
     users {
         INTEGER id PK
         TEXT    features            JSON_blob_ai_widgets_bool
@@ -80,18 +79,18 @@ erDiagram
         INTEGER layout_y
         INTEGER layout_w
         INTEGER layout_h
-        TEXT    data_source_json "metric | insight"
+        TEXT    data_source_json "metric | snapshot"
         TEXT    config_json
+        TEXT    snapshot_json    "frozen WidgetSpec payload when kind=snapshot"
         TEXT    created_at
         TEXT    updated_at
     }
-    saved_insights {
+    ai_widget_audit {
         INTEGER id PK
-        INTEGER user_id FK
-        TEXT    title
-        INTEGER source_message_id FK NULL_when_originating_message_deleted
-        TEXT    chart_json   "legacy ChartSpec; nullable"
-        TEXT    widget_json  "WidgetSpec; new rows write this"
+        INTEGER message_id FK    "assistant message that produced the snapshot"
+        TEXT    widget_type
+        TEXT    fallback_reason  "what the AI said about why no metric fit"
+        TEXT    user_question
         TEXT    created_at
     }
     ai_usage {
@@ -211,31 +210,32 @@ CREATE TABLE widgets (
     layout_y          INTEGER NOT NULL,
     layout_w          INTEGER NOT NULL,
     layout_h          INTEGER NOT NULL,
-    -- `{kind:"metric", metric_id, params}` or `{kind:"insight", insight_id}`.
+    -- `{kind:"metric", metric_id, params}` or `{kind:"snapshot"}`.
     data_source_json  TEXT NOT NULL,
     config_json       TEXT NOT NULL,    -- per-type display options; usually {}
+    -- Inline frozen `{type, title, data}` payload for kind=snapshot
+    -- widgets; NULL for kind=metric.
+    snapshot_json     TEXT,
     created_at        TEXT NOT NULL,
     updated_at        TEXT NOT NULL
 );
 
 CREATE INDEX idx_widgets_dashboard ON widgets(dashboard_id);
 
--- Frozen widget snapshots lifted off Insights chat messages. `widget_json`
--- carries the polymorphic `{type, title, data}` payload (any widget type).
--- `chart_json` is the legacy timeseries-only column kept nullable for
--- backward compatibility; reads prefer widget_json and synthesise one
--- from chart_json when only the legacy column is set.
-CREATE TABLE saved_insights (
-    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title              TEXT NOT NULL,
-    source_message_id  INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL,
-    chart_json         TEXT,
-    widget_json        TEXT,
-    created_at         TEXT NOT NULL
+-- One row per AI assistant message that emitted a snapshot-only widget
+-- (no curated metric could express the answer). Used to grow the metric
+-- registry. The chat-session route writes one row right after persisting
+-- the message.
+CREATE TABLE ai_widget_audit (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id      INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE,
+    widget_type     TEXT NOT NULL,
+    fallback_reason TEXT,
+    user_question   TEXT,
+    created_at      TEXT NOT NULL
 );
 
-CREATE INDEX idx_saved_insights_user ON saved_insights(user_id, created_at DESC);
+CREATE INDEX idx_ai_widget_audit_created_at ON ai_widget_audit(created_at DESC);
 
 -- One row per AI API call. Powers the global "$X.XX spent" chip and
 -- per-chat estimates. `chat_session_id` is set only for chat calls so spend
@@ -262,9 +262,9 @@ CREATE INDEX idx_ai_usage_created_at ON ai_usage(created_at);
 
 `db.py::init_schema` is forward-compatible with older DBs:
 
-- `_add_column_if_missing` adds `users.selected_model`, `users.last_dashboard_id`, `dashboards.time_range_preset`, `dashboards.time_range_start`, `dashboards.time_range_end`, `chat_messages.widget_json`, and `saved_insights.widget_json` when missing.
+- `_add_column_if_missing` adds `users.selected_model`, `users.last_dashboard_id`, `dashboards.time_range_preset`, `dashboards.time_range_start`, `dashboards.time_range_end`, `chat_messages.widget_json`, and `widgets.snapshot_json` when missing.
 - `_drop_column_if_present` strips the legacy `anthropic_api_key` / `anthropic_admin_api_key` / `anthropic_model` columns (SQLite ≥ 3.35) when migrating an older DB.
-- `_relax_saved_insights_chart_json` rebuilds the `saved_insights` table to drop the legacy `NOT NULL` constraint on `chart_json` — required so that non-timeseries widget payloads (pie, table, treemap, …) can be persisted via `widget_json` only. SQLite has no `ALTER COLUMN`, so the helper does the standard "new table, copy data, drop old, rename" dance.
+- The legacy `saved_insights` table is unconditionally dropped on every startup — it was the frozen-bytes inbox for chat-saved widgets and is replaced by the inline `widgets.snapshot_json` column.
 
 All helpers are idempotent.
 

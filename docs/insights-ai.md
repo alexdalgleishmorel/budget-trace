@@ -38,7 +38,7 @@ Write tools are always registered when chat is reachable — gating happens upst
 
 | Tool | What it does |
 |------|--------------|
-| `present_to_user` | **Inline only.** The structured-output channel. Args: `text: str` (required), `widget: WidgetSpec?` (preferred), `chart: ChartSpec?` (deprecated, auto-wrapped to a timeseries widget server-side). |
+| `present_to_user` | **Inline only.** The structured-output channel. Args: `text: str` (required), `widget: WidgetSpec?` (preferred), `chart: ChartSpec?` (deprecated, auto-wrapped to a timeseries widget server-side). When `widget.metric_id` is set, the chat orchestrator resolves `widget.data` server-side using `widget.time_range` — the chat-time snapshot is byte-identical to what running the same metric on a dashboard would produce. |
 
 The MCP tools (read + write) are portable — point any MCP client at the same server and they keep working. `present_to_user` is *this app's* output schema and lives in the orchestrator. Splitting them keeps the read API clean.
 
@@ -73,9 +73,16 @@ class WidgetSpec(BaseModel):
                   "query_value", "table", "treemap"]
     title: str
     data: dict   # per-type shape — see widgets.md
+    metric_id: str | None = None        # set → re-runnable on dashboard
+    metric_params: dict | None = None   # params matching the metric's schema
+    fallback_reason: str | None = None  # only when metric_id is null
 ```
 
 The per-type `data` shapes mirror exactly what the dashboard's widget-data endpoint returns for the curated metric registry. That symmetry is intentional — see [widgets.md](widgets.md#widget-types) for the full reference.
+
+When the AI sets `metric_id` + `metric_params`, the chat orchestrator passes them (with the AI-supplied `time_range`) to `widget_metrics.resolve_metric_data` and overwrites `data` with the resolver output. This guarantees the chat-time snapshot is byte-identical to what re-running the same metric on a dashboard will produce — and it captures the re-runnable query so "Save to dashboard…" can create a `kind:"metric"` dashboard widget that follows the dashboard's time range.
+
+When no metric fits, the AI emits `data` directly plus a `fallback_reason`. Saving that widget to a dashboard creates a `kind:"snapshot"` widget whose payload lives inline on the widget row (`widgets.snapshot_json`). The chat-session route writes a row to `ai_widget_audit` capturing the reason and the user's question, so the registry can be grown.
 
 **Quick reference of when the AI should reach for each type:**
 
@@ -120,7 +127,7 @@ The orchestrator may run several tool-call rounds before getting to `present_to_
 
 ## Where the widget shows
 
-Each assistant `ChatMessage` with a non-null `widget` renders the widget inline below the text, in a fixed 260 dp tile that uses the same `WidgetCard` shell as the dashboard grid (with `previewData` short-circuiting the fetch). A "Save as widget" button beneath the tile lifts the rendered widget into a `saved_insight` row, which can then be attached to any dashboard. See [widgets.md](widgets.md#saved-insights--frozen-widget-snapshots) for the saved-insight contract — refreshes never re-invoke the AI; they re-read the stored bytes.
+Each assistant `ChatMessage` with a non-null `widget` renders the widget inline below the text, in a fixed 260 dp tile that uses the same `WidgetCard` shell as the dashboard grid (with `previewData` short-circuiting the fetch). A "Save to dashboard…" button beneath the tile opens a dashboard picker; the chosen dashboard receives the widget via `POST /chat/messages/{id}/save-to-dashboard`. See [widgets.md](widgets.md#saving-a-chat-widget-to-a-dashboard) for the two paths (re-runnable metric vs. frozen snapshot) and the audit log for snapshot fallbacks.
 
 ## Cost tracking
 

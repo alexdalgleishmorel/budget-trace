@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
 import '../../models/dashboard.dart';
+import '../../services/categories_client.dart';
 import '../../services/dashboards_client.dart';
 import '../../theme/app_theme.dart';
 import 'widget_card.dart';
 
 /// Drawer used both to add a new widget and to edit an existing one. Flow:
-/// pick widget type → pick data source (curated metric or saved insight)
-/// → fill any per-widget knobs. Live preview pulled from the backend on
-/// a debounce.
+/// pick widget type → pick a curated metric → fill its params. Live
+/// preview pulled from the backend on a debounce.
+///
+/// The drawer only creates `kind:"metric"` widgets. Snapshot widgets are
+/// created exclusively by the "Save to dashboard…" flow on the Insights
+/// chat — there's no path to build one here.
 ///
 /// Per the dashboard-level time range, this drawer **does not** collect
 /// `start` / `end` dates — those live on the dashboard.
@@ -18,20 +22,19 @@ class AddWidgetDrawer extends StatefulWidget {
     required this.dashboardId,
     required this.client,
     required this.registry,
-    required this.savedInsights,
-    required this.categoryPaths,
+    required this.categories,
     this.initial,
   });
 
   final int dashboardId;
   final DashboardsClient client;
   final WidgetMetricRegistry registry;
-  final List<SavedInsight> savedInsights;
 
-  /// Full set of category paths the user can pick from when a metric's
-  /// params include a `category_path` field. Loaded by the caller from
-  /// `GET /categories` so the dropdown stays in sync with the user's tree.
-  final List<String> categoryPaths;
+  /// Full set of categories the user can pick from when a metric's params
+  /// include a `category_path` field. The full DTO is passed (rather than
+  /// just paths) so the drawer can honour each schema field's
+  /// `parent_only` flag — drill-down params filter out leaves.
+  final List<CategoryDto> categories;
 
   final DashboardWidget? initial;
 
@@ -75,13 +78,23 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
   };
 
   String? _type;
-  String _sourceKind = 'metric'; // 'metric' | 'insight'
   String? _metricId;
-  int? _insightId;
   late Map<String, dynamic> _params;
-  final TextEditingController _titleCtrl = TextEditingController();
   bool _busy = false;
   String? _error;
+
+  /// Title is creation-locked — created widgets get the server-derived
+  /// `{Type} : {Metric}` title. Editing exposes a rename field;
+  /// `_titleCtrl` is only instantiated then. `_initialTitle` is what
+  /// was pre-filled when the drawer opened; if the user didn't touch
+  /// it we send empty on save so the server re-derives (so e.g.
+  /// changing the rollup period refreshes the title too).
+  TextEditingController? _titleCtrl;
+  String? _initialTitle;
+
+  /// Set when editing an existing snapshot widget. Snapshots are
+  /// frozen — only the title is editable.
+  bool _editingSnapshot = false;
 
   int _previewTick = 0;
   WidgetData? _previewData;
@@ -95,18 +108,18 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
     final init = widget.initial;
     if (init != null) {
       _type = init.type;
-      _sourceKind = init.dataSource.kind;
+      _editingSnapshot = init.dataSource.isSnapshot;
       _metricId = init.dataSource.metricId;
-      _insightId = init.dataSource.insightId;
       _params = Map.of(init.dataSource.params);
-      _titleCtrl.text = init.title;
+      _titleCtrl = TextEditingController(text: init.title);
+      _initialTitle = init.title;
       _schedulePreview();
     }
   }
 
   @override
   void dispose() {
-    _titleCtrl.dispose();
+    _titleCtrl?.dispose();
     super.dispose();
   }
 
@@ -119,55 +132,21 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
               .where((m) => m.widgetTypes.contains(_type))
               .toList();
 
-  WidgetMetricDef? get _selectedMetric =>
-      _metricId == null ? null : _compatibleMetrics.where((m) => m.id == _metricId).cast<WidgetMetricDef?>().firstWhere((_) => true, orElse: () => null);
-
-  SavedInsight? get _selectedInsight => _insightId == null
-      ? null
-      : widget.savedInsights
-          .where((s) => s.id == _insightId)
-          .cast<SavedInsight?>()
-          .firstWhere((_) => true, orElse: () => null);
-
-  /// Saved insights compatible with the chosen widget type. Each saved
-  /// insight has a fixed type (whatever the AI produced), so the drawer
-  /// can only attach an insight whose type matches the user's choice.
-  List<SavedInsight> get _compatibleInsights => _type == null
-      ? const []
-      : widget.savedInsights.where((s) => s.widget.type == _type).toList();
-
-  bool get _insightCompatible => _compatibleInsights.isNotEmpty;
-
-  bool get _canSave =>
-      _type != null &&
-      ((_sourceKind == 'metric' && _metricId != null) ||
-          (_sourceKind == 'insight' && _insightId != null));
-
-  /// Resolves the actual title we'll send. Empty input falls back to the
-  /// metric label / saved-insight title, so the user can leave Title blank.
-  String _resolvedTitle() {
-    final v = _titleCtrl.text.trim();
-    if (v.isNotEmpty) return v;
-    if (_sourceKind == 'metric' && _selectedMetric != null) {
-      return _selectedMetric!.label;
-    }
-    if (_sourceKind == 'insight' && _selectedInsight != null) {
-      return _selectedInsight!.title;
-    }
-    return 'Untitled';
+  bool get _canSave {
+    if (_type == null) return false;
+    // Snapshot widgets can still be retitled in edit mode — that's the
+    // only thing exposed for them.
+    if (_editingSnapshot) return _isEdit;
+    return _metricId != null;
   }
 
   void _onTypeSelected(String t) {
     setState(() {
       _type = t;
-      if (_sourceKind == 'metric' && _metricId != null) {
+      if (_metricId != null) {
         final still = widget.registry.metrics
             .any((m) => m.id == _metricId && m.widgetTypes.contains(t));
         if (!still) _metricId = null;
-      }
-      if (_sourceKind == 'insight' && !_insightCompatible) {
-        _sourceKind = 'metric';
-        _insightId = null;
       }
       _previewData = null;
     });
@@ -200,18 +179,36 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
       _previewBusy = true;
       _previewError = null;
     });
+    if (_editingSnapshot) {
+      // Snapshots can't be re-resolved through the create-and-fetch
+      // dance; preview is read straight from the existing widget.
+      if (widget.initial != null) {
+        try {
+          final data = await widget.client.getWidgetData(
+            widget.dashboardId, widget.initial!.id,
+          );
+          if (!mounted || myTick != _previewTick) return;
+          setState(() => _previewData = data);
+        } catch (e) {
+          if (!mounted || myTick != _previewTick) return;
+          setState(() => _previewError = e.toString());
+        } finally {
+          if (mounted && myTick == _previewTick) {
+            setState(() => _previewBusy = false);
+          }
+        }
+      }
+      return;
+    }
     try {
-      final dataSource = _sourceKind == 'metric'
-          ? WidgetDataSource.metric(metricId: _metricId!, params: _params)
-          : WidgetDataSource.insight(insightId: _insightId!);
+      final dataSource =
+          WidgetDataSource.metric(metricId: _metricId!, params: _params);
       // Create a draft widget so we can hit GET /data through the normal
       // path — then delete it. The dashboard briefly shows an extra
       // widget; preview is debounced and short-lived.
       final draft = await widget.client.createWidget(
         widget.dashboardId,
         type: _type!,
-        title: '__preview__',
-        layout: _minLayout(_type!),
         dataSource: dataSource,
       );
       try {
@@ -234,11 +231,6 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
     }
   }
 
-  WidgetLayout _minLayout(String type) {
-    final min = widget.registry.minSizes[type];
-    return WidgetLayout(x: 0, y: 0, w: min?.w ?? 2, h: min?.h ?? 2);
-  }
-
   Future<void> _save() async {
     if (!_canSave) return;
     setState(() {
@@ -246,24 +238,28 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
       _error = null;
     });
     try {
-      final ds = _sourceKind == 'metric'
-          ? WidgetDataSource.metric(metricId: _metricId!, params: _params)
-          : WidgetDataSource.insight(insightId: _insightId!);
-      final title = _resolvedTitle();
       DashboardWidget result;
       if (_isEdit) {
+        // If the user didn't touch the title field, send empty so the
+        // backend re-derives — that way changing the metric or its
+        // rollup period also refreshes the title. If they typed a
+        // rename, send it verbatim.
+        final typed = _titleCtrl?.text.trim() ?? '';
+        final untouched = typed == (_initialTitle ?? '').trim();
+        final titleToSend = untouched ? '' : typed;
         result = await widget.client.updateWidget(
           widget.dashboardId, widget.initial!.id,
-          title: title,
-          dataSource: ds,
+          title: titleToSend,
+          dataSource: _editingSnapshot
+              ? null
+              : WidgetDataSource.metric(metricId: _metricId!, params: _params),
         );
       } else {
         result = await widget.client.createWidget(
           widget.dashboardId,
           type: _type!,
-          title: title,
-          layout: _minLayout(_type!),
-          dataSource: ds,
+          dataSource:
+              WidgetDataSource.metric(metricId: _metricId!, params: _params),
         );
       }
       if (!mounted) return;
@@ -296,7 +292,6 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
                   const SizedBox(height: 8),
                   _PreviewArea(
                     type: _type,
-                    title: _resolvedTitle(),
                     data: _previewData,
                     busy: _previewBusy,
                     error: _previewError,
@@ -305,11 +300,16 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
                   if (!_isEdit) _typePicker(bt),
                   if (_type != null) ...[
                     if (!_isEdit) const SizedBox(height: 20),
-                    _SectionLabel('Title'),
-                    const SizedBox(height: 8),
-                    _titleField(bt),
-                    const SizedBox(height: 20),
-                    _sourcePicker(bt),
+                    if (_isEdit) ...[
+                      _SectionLabel('Title'),
+                      const SizedBox(height: 8),
+                      _titleField(bt),
+                      const SizedBox(height: 20),
+                    ],
+                    if (_editingSnapshot)
+                      _SnapshotBanner(bt: bt)
+                    else
+                      _metricForm(bt),
                   ],
                   if (_error != null) ...[
                     const SizedBox(height: 12),
@@ -391,59 +391,12 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
   }
 
   Widget _titleField(BudgetTheme bt) {
-    final fallback = (_sourceKind == 'metric' && _selectedMetric != null)
-        ? _selectedMetric!.label
-        : (_sourceKind == 'insight' && _selectedInsight != null
-            ? _selectedInsight!.title
-            : 'Untitled');
     return TextField(
       controller: _titleCtrl,
-      decoration: InputDecoration(
-        hintText: 'Optional — defaults to “$fallback”',
-        hintStyle: TextStyle(color: bt.ink5, fontStyle: FontStyle.italic),
+      decoration: const InputDecoration(
+        hintText: 'Leave blank to use the auto-derived title',
         isDense: true,
       ),
-      onChanged: (_) => setState(() {}),
-    );
-  }
-
-  Widget _sourcePicker(BudgetTheme bt) {
-    final selectionDescription = _sourceKind == 'metric'
-        ? 'Curated, live aggregations computed from your transactions on every '
-          'load. Use a metric when you want fresh numbers as your data changes.'
-        : 'A frozen snapshot you saved from an Insights chat. The chart is '
-          'stored as-is and re-renders without running the AI again. Use a '
-          'saved insight to keep a specific finding pinned to your dashboard.';
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _SectionLabel('Data source'),
-        const SizedBox(height: 8),
-        SegmentedButton<String>(
-          segments: [
-            const ButtonSegment(value: 'metric', label: Text('Metric')),
-            ButtonSegment(
-              value: 'insight',
-              label: Text(
-                  _insightCompatible ? 'Saved insight' : 'Saved insight (n/a)'),
-              enabled: _insightCompatible,
-            ),
-          ],
-          selected: {_sourceKind},
-          onSelectionChanged: (s) => setState(() {
-            _sourceKind = s.first;
-            _previewData = null;
-            _schedulePreview();
-          }),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          selectionDescription,
-          style: TextStyle(fontSize: 11, color: bt.ink4, height: 1.45),
-        ),
-        const SizedBox(height: 12),
-        if (_sourceKind == 'metric') _metricForm(bt) else _insightPicker(bt),
-      ],
     );
   }
 
@@ -526,7 +479,7 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
           _ParamsForm(
             schema: metrics.firstWhere((m) => m.id == _metricId).paramsSchema,
             params: _params,
-            categoryPaths: widget.categoryPaths,
+            categories: widget.categories,
             onChanged: _onParamChanged,
           ),
         ],
@@ -534,31 +487,30 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
     );
   }
 
-  Widget _insightPicker(BudgetTheme bt) {
-    final compatible = _compatibleInsights;
-    if (compatible.isEmpty) {
-      // Either no saved insights at all, or none match the chosen type.
-      final msg = widget.savedInsights.isEmpty
-          ? 'No saved insights yet. Save one from the Insights tab to use it here.'
-          : 'No saved insights of this widget type. Save one from the '
-              'Insights tab (the AI picks the type) or switch to a different '
-              'widget type above.';
-      return Text(msg, style: TextStyle(fontSize: 12, color: bt.ink4));
-    }
-    return DropdownButtonFormField<int>(
-      initialValue: _insightId,
-      isExpanded: true,
-      decoration: const InputDecoration(
-        labelText: 'Saved insight', isDense: true,
+}
+
+/// Banner shown when "editing" a snapshot widget. Snapshots are frozen
+/// end-to-end — there's nothing to change here. To get fresh data, add
+/// a curated-metric widget instead.
+class _SnapshotBanner extends StatelessWidget {
+  const _SnapshotBanner({required this.bt});
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+      decoration: BoxDecoration(
+        color: bt.warnBg,
+        border: Border.all(color: bt.warn),
+        borderRadius: const BorderRadius.all(Radius.circular(10)),
       ),
-      items: [
-        for (final s in compatible)
-          DropdownMenuItem(value: s.id, child: Text(s.title)),
-      ],
-      onChanged: (v) {
-        setState(() => _insightId = v);
-        _schedulePreview();
-      },
+      child: Text(
+        'Snapshot widget — data is frozen and ignores the dashboard\'s '
+        'time range. To get fresh data, add a curated-metric widget '
+        'instead.',
+        style: TextStyle(fontSize: 12, color: bt.ink3, height: 1.45),
+      ),
     );
   }
 }
@@ -655,13 +607,13 @@ class _ParamsForm extends StatelessWidget {
   const _ParamsForm({
     required this.schema,
     required this.params,
-    required this.categoryPaths,
+    required this.categories,
     required this.onChanged,
   });
 
   final List<Map<String, dynamic>> schema;
   final Map<String, dynamic> params;
-  final List<String> categoryPaths;
+  final List<CategoryDto> categories;
   final void Function(String name, dynamic value) onChanged;
 
   @override
@@ -675,7 +627,7 @@ class _ParamsForm extends StatelessWidget {
             child: _ParamField(
               field: field,
               value: params[field['name']],
-              categoryPaths: categoryPaths,
+              categories: categories,
               onChanged: (v) => onChanged(field['name'] as String, v),
             ),
           ),
@@ -688,13 +640,13 @@ class _ParamField extends StatelessWidget {
   const _ParamField({
     required this.field,
     required this.value,
-    required this.categoryPaths,
+    required this.categories,
     required this.onChanged,
   });
 
   final Map<String, dynamic> field;
   final dynamic value;
-  final List<String> categoryPaths;
+  final List<CategoryDto> categories;
   final ValueChanged<dynamic> onChanged;
 
   @override
@@ -712,16 +664,27 @@ class _ParamField extends StatelessWidget {
           decoration: InputDecoration(labelText: label, isDense: true),
           items: [
             for (final o in (field['options'] as List).cast<String>())
-              DropdownMenuItem(value: o, child: Text(o)),
+              DropdownMenuItem(value: o, child: Text(_humanise(o))),
           ],
           onChanged: onChanged,
         );
       case 'category_path':
-        // `null` = no filter (all categories). Keeping the dropdown
-        // null-safe with a discriminated entry up top.
+        // `null` = no filter (all categories). When the schema marks
+        // the field as `parent_only` (drill-down targets), the list is
+        // filtered to non-leaf categories — picking a leaf has no
+        // children to drill into.
+        final parentOnly = field['parent_only'] == true;
+        final visible = [
+          for (final c in categories)
+            if (!c.isUnknown && (!parentOnly || !c.isLeaf)) c,
+        ];
+        final placeholder =
+            parentOnly ? 'Top-level breakdown' : 'All categories';
         final current = (value as String?)?.trim();
-        final knownValue =
-            current != null && categoryPaths.contains(current) ? current : null;
+        final knownValue = current != null &&
+                visible.any((c) => c.path == current)
+            ? current
+            : null;
         control = DropdownButtonFormField<String?>(
           initialValue: knownValue,
           isExpanded: true,
@@ -729,11 +692,11 @@ class _ParamField extends StatelessWidget {
           items: [
             DropdownMenuItem<String?>(
               value: null,
-              child: Text('All categories',
+              child: Text(placeholder,
                   style: TextStyle(color: bt.ink3, fontStyle: FontStyle.italic)),
             ),
-            for (final p in categoryPaths)
-              DropdownMenuItem<String?>(value: p, child: Text(p)),
+            for (final c in visible)
+              DropdownMenuItem<String?>(value: c.path, child: Text(c.path)),
           ],
           onChanged: onChanged,
         );
@@ -769,19 +732,27 @@ class _ParamField extends StatelessWidget {
       ],
     );
   }
+
+  /// Turn a wire-format enum value into the dropdown label. Backend stores
+  /// lowercase `snake_case` (e.g. `previous_period`, `trailing_avg`) so
+  /// resolvers can match exactly; we display them as `Previous period`,
+  /// `Trailing avg`.
+  static String _humanise(String value) {
+    if (value.isEmpty) return value;
+    final spaced = value.replaceAll('_', ' ');
+    return spaced[0].toUpperCase() + spaced.substring(1);
+  }
 }
 
 class _PreviewArea extends StatelessWidget {
   const _PreviewArea({
     required this.type,
-    required this.title,
     required this.data,
     required this.busy,
     required this.error,
   });
 
   final String? type;
-  final String title;
   final WidgetData? data;
   final bool busy;
   final String? error;
@@ -816,7 +787,7 @@ class _PreviewArea extends StatelessWidget {
                           textAlign: TextAlign.center,
                         ),
                 )
-              : _PreviewWidgetCard(type: type!, title: title, data: data!)),
+              : _PreviewWidgetCard(type: type!, data: data!)),
     );
   }
 }
@@ -824,17 +795,15 @@ class _PreviewArea extends StatelessWidget {
 class _PreviewWidgetCard extends StatelessWidget {
   const _PreviewWidgetCard({
     required this.type,
-    required this.title,
     required this.data,
   });
   final String type;
-  final String title;
   final WidgetData data;
 
   @override
   Widget build(BuildContext context) {
     final fake = DashboardWidget(
-      id: -1, dashboardId: -1, type: type, title: title,
+      id: -1, dashboardId: -1, type: type, title: '',
       layout: const WidgetLayout(x: 0, y: 0, w: 4, h: 3),
       dataSource: const WidgetDataSource.metric(metricId: 'preview'),
       config: const {},

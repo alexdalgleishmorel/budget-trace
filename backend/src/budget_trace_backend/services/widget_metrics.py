@@ -106,10 +106,15 @@ def _enum(name: str, label: str, options: list[str], *, default: str | None = No
 
 
 def _category(name: str, label: str, *, required: bool = False,
+              parent_only: bool = False,
               description: str | None = None) -> dict:
+    """Category-path picker. When `parent_only=True`, the frontend
+    filters the dropdown to non-leaf categories — drill-down targets
+    only. Default surfaces every category (used for filter params)."""
     return {
         "name": name, "label": label, "type": "category_path",
         "required": required,
+        "parent_only": parent_only,
         "description": description,
     }
 
@@ -250,12 +255,18 @@ def _wrap_query_value(
     fmt: str = "currency",
     comparison: dict | None = None,
     sparkline: list[float] | None = None,
+    unit: str | None = None,
 ) -> dict:
+    """`unit` is a per-period rate label rendered next to the value
+    (e.g. `unit="month"` → "$999 / month"). Only set it when the value
+    is genuinely rate-shaped — for window totals it would be misleading."""
     out: dict = {"value": float(round(value, 2)), "format": fmt}
     if comparison is not None:
         out["comparison"] = comparison
     if sparkline is not None:
         out["sparkline"] = [float(v) for v in sparkline]
+    if unit:
+        out["unit"] = unit
     return out
 
 
@@ -299,7 +310,7 @@ def _items_from_dispatch(
 def _resolve_spend_over_time(params: dict, widget_type: WidgetType, *,
                               time_range: tuple[str, str]) -> dict:
     start, end = time_range
-    bucket = _param(params, "bucket", "month")
+    bucket = _param(params, "rollup_period", "day")
     category = _param(params, "category_path")
 
     rows = mcp_server.aggregate_spending(start, end, bucket, category)
@@ -386,7 +397,7 @@ def _resolve_total_spend(params: dict, widget_type: WidgetType, *,
 def _resolve_average_per_period(params: dict, widget_type: WidgetType, *,
                                  time_range: tuple[str, str]) -> dict:
     start, end = time_range
-    bucket = _param(params, "bucket", "month")
+    bucket = _param(params, "rollup_period", "month")
     category = _param(params, "category_path")
 
     rows = mcp_server.aggregate_spending(start, end, bucket, category)
@@ -394,7 +405,9 @@ def _resolve_average_per_period(params: dict, widget_type: WidgetType, *,
     avg = round(sum(values) / len(values), 2) if values else 0.0
 
     if widget_type == "query_value":
-        return _wrap_query_value(avg, sparkline=values or None)
+        # The headline value is per-bucket — surface the unit so the
+        # renderer can show "$999 / month" instead of bare "$999".
+        return _wrap_query_value(avg, sparkline=values or None, unit=bucket)
 
     items = [(f"avg / {bucket}", avg)]
     return _items_from_dispatch(
@@ -635,10 +648,10 @@ METRIC_REGISTRY: dict[str, MetricDef] = {
     "spend_over_time": MetricDef(
         id="spend_over_time",
         label="Spend over time",
-        description="Total spend bucketed across the dashboard's time range. Pick a bucket size to control granularity.",
+        description="Total spend bucketed across the dashboard's time range. Pick a rollup period to control granularity.",
         widget_types=("timeseries", "bar", "table", "query_value"),
         params_schema=[
-            _enum("bucket", "Bucket", _BUCKETS, default="month",
+            _enum("rollup_period", "Rollup period", _BUCKETS, default="day",
                   description="How wide each point on the chart is."),
             _category("category_path", "Category filter",
                       description="Optional — restrict to one category and its subcategories."),
@@ -652,6 +665,7 @@ METRIC_REGISTRY: dict[str, MetricDef] = {
         widget_types=("pie", "bar", "treemap", "table", "query_value"),
         params_schema=[
             _category("parent_category", "Drill into",
+                      parent_only=True,
                       description="Optional — leave blank to see the top-level breakdown."),
         ],
         resolver=_resolve_spend_by_category,
@@ -685,11 +699,11 @@ METRIC_REGISTRY: dict[str, MetricDef] = {
     "average_per_period": MetricDef(
         id="average_per_period",
         label="Average per period",
-        description="Mean spend per bucket across the dashboard's time range.",
+        description="Mean spend per rollup period across the dashboard's time range.",
         widget_types=("query_value", "table"),
         params_schema=[
-            _enum("bucket", "Bucket", _BUCKETS, default="month",
-                  description="Average is taken across buckets of this size."),
+            _enum("rollup_period", "Rollup period", _BUCKETS, default="month",
+                  description="Average is taken across periods of this size."),
             _category("category_path", "Category filter",
                       description="Optional — restrict to one category."),
         ],

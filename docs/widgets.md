@@ -1,23 +1,22 @@
 # Widgets / Dashboards
 
-The Widgets tab is the fourth top-level tab (between Expenses and Insights). It lets the user assemble Datadog-style dashboards — named, multi-page collections of widgets — driven by either curated server-side metrics or frozen snapshots saved off the Insights chat.
+The Widgets tab is the fourth top-level tab (between Expenses and Insights). It lets the user assemble Datadog-style dashboards — named, multi-page collections of widgets — driven by either curated server-side metrics or frozen snapshots lifted off the Insights chat.
 
 This is the doc to read before touching anything in `routes/dashboards.py`, `services/dashboards.py`, `services/widget_metrics.py`, or `frontend/lib/widgets/dash_widgets/`. It captures the *why* of the data model and the AI integration.
 
-## The three concepts
+## The two concepts
 
 | Concept | What it is | Where it lives |
 |---------|------------|----------------|
 | **Dashboard** | A named container with a time range and N widgets. | `dashboards` table |
 | **Widget** | A typed, sized, positioned tile on a dashboard. Knows its data source. | `widgets` table |
-| **Saved insight** | A frozen widget snapshot lifted off an AI message. | `saved_insights` table |
 
 A widget's `data_source` is one of:
 
 1. **`{kind: "metric", metric_id, params}`** — a live aggregation. Refresh re-runs the resolver server-side using the dashboard's current time range.
-2. **`{kind: "insight", insight_id}`** — a stored payload. Refresh re-renders the same bytes; no AI is involved.
+2. **`{kind: "snapshot"}`** — a frozen payload stored inline on the widget row in `snapshot_json`. Refresh re-renders the same bytes; no AI is involved, and the dashboard's time range is intentionally ignored. Only the chat "Save to dashboard…" flow creates these; the Add-widget drawer cannot.
 
-The frontend renderer never branches on `data_source.kind`. It dispatches on **`widget.type`**, and the `GET /dashboards/:id/widgets/:wid/data` endpoint returns a payload already shaped for that type. The two kinds are unified at the data-resolution boundary, not at the render boundary.
+The frontend renderer never branches on `data_source.kind`. It dispatches on **`widget.type`**, and the `GET /dashboards/:id/widgets/:wid/data` endpoint returns a payload already shaped for that type plus an `is_snapshot: bool` flag the chrome uses to show a "Snapshot" badge and disable refresh.
 
 ## Widget types
 
@@ -78,21 +77,25 @@ Current starter set (every entry except `spend_forecast` honours the dashboard's
 
 Adding a metric: write a resolver + `MetricDef` entry, restart the backend. No frontend release needed — the drawer's param form renders the new metric's `params_schema` generically.
 
-## Saved insights — frozen widget snapshots
+## Saving a chat widget to a dashboard
 
-A saved insight is a **widget bytes-on-disk snapshot** — *not* a re-runnable query. The "future refresh" path simply re-reads `widget_json` and hands it back; no AI replay, no aggregation rerun.
+When the Insights AI produces a widget that the user wants on a dashboard, the chat-side **"Save to dashboard…"** button takes the AI's `widget` payload and creates a dashboard widget directly. There is no intermediary inbox — the user picks the target dashboard (or creates a new one) and the widget lands on it.
 
-The user's directive was explicit: when a widget generated on the Insights page is added to a dashboard, future renders are populated via REST requests, **not** by re-invoking the AI.
+Two paths, picked by what the AI emitted:
+
+1. **Re-runnable** — the AI's widget carries `metric_id` + `metric_params`. The saved widget gets `data_source = {kind: "metric", metric_id, params}`. On every dashboard render it re-runs the metric server-side **using the dashboard's time range** — so the same widget can power different windows just by changing the dashboard's range. This is the path the user's directive specifies: *"the only snapshot should be for the historical view in the insights chat itself."*
+
+2. **Snapshot fallback** — the AI couldn't express the answer as a curated metric (it told us so via `fallback_reason`). The saved widget gets `data_source = {kind: "snapshot"}` and the rendered `data` is stored inline on `widgets.snapshot_json`. The dashboard's time range is **ignored**; the bytes are returned verbatim. The chrome shows a "Snapshot" badge and disables refresh.
+
+Snapshot fallbacks are an audit signal — every one of them writes a row to `ai_widget_audit` capturing the message id, the AI's `fallback_reason`, and the original user question, so the curated registry can be grown to cover the gap.
 
 Mechanically:
 
-1. The Insights chat AI emits a `widget` (any of the six types) via `present_to_user`.
-2. The user clicks "Save as widget" on a chat message → frontend `POST /saved-insights {title, widget, source_message_id?}`.
-3. Backend persists `widget_json` (a `{type, title, data}` payload) on the `saved_insights` row.
-4. The Add-widget drawer's "Saved insight" picker filters by the chosen widget type — only insights whose stored type matches are selectable.
-5. A widget with `data_source.kind = "insight"` resolves to the saved insight's `data`. The widget's `type` **must** match the saved insight's type; mismatch is rejected at `_validate_data_source` time.
+1. The Insights chat AI emits a `widget` via `present_to_user`, preferring `metric_id` + `metric_params` + `time_range`. The chat orchestrator resolves the metric server-side to produce the chat-time snapshot — so the bytes the user sees in the chat are byte-identical to what re-running the same metric on a dashboard would produce.
+2. The user clicks "Save to dashboard…" on a chat message → frontend `POST /chat/messages/{id}/save-to-dashboard {dashboard_id, title?}`.
+3. Backend looks up the message, inspects its widget payload, and creates the appropriate widget on the chosen dashboard (`save_chat_widget_to_dashboard` in [services/dashboards.py](../backend/src/budget_trace_backend/services/dashboards.py)).
 
-Legacy compatibility: pre-widget rows store a ChartSpec in `saved_insights.chart_json` instead. Reads synthesise a `{type: "timeseries", title, data: {chart: <ChartSpec>}}` payload if `widget_json` is missing. The `NOT NULL` constraint on the legacy `chart_json` column is relaxed by a one-time [`_relax_saved_insights_chart_json`](../backend/src/budget_trace_backend/db.py) migration so new non-timeseries insights can be written.
+The Add-widget drawer is metric-only; there is no path to construct a snapshot widget from there. Editing an existing snapshot lets the user retitle but not change its data source or params.
 
 ## REST surface
 
@@ -109,11 +112,10 @@ All routes are gated behind the `widgets` feature flag (defaults **on**). 403 + 
 | `PATCH` | `/dashboards/{id}/widgets/{wid}` `WidgetUpdate` | `WidgetOut` |
 | `DELETE` | `/dashboards/{id}/widgets/{wid}` | `{deleted_id}` |
 | `PUT` | `/dashboards/{id}/layout` `{layouts: [{id, x, y, w, h}]}` | `{updated: N}` |
-| `GET` | `/dashboards/{id}/widgets/{wid}/data` | `{type, data}` shaped per widget type |
+| `GET` | `/dashboards/{id}/widgets/{wid}/data` | `{type, data, is_snapshot}` shaped per widget type |
 | `GET` | `/widget-metrics` | `{metrics: [...], widget_min_sizes: {...}, time_range_presets: [...]}` |
-| `GET` | `/saved-insights` | `[SavedInsightOut]` |
-| `POST` | `/saved-insights` `{title, widget, source_message_id?}` | `SavedInsightOut` (201) |
-| `DELETE` | `/saved-insights/{id}` | `{deleted_id}` |
+| `POST` | `/chat/messages/{id}/save-to-dashboard` `{dashboard_id, title?}` | `WidgetOut` (201) |
+| `GET` | `/ai-widget-audit` | `{rows: [{id, message_id, widget_type, fallback_reason, user_question, created_at}]}` |
 
 ```jsonc
 // DashboardOut
@@ -137,15 +139,11 @@ All routes are gated behind the `widgets` feature flag (defaults **on**). 403 + 
   "created_at": "...", "updated_at": "..."
 }
 
-// SavedInsightOut
+// WidgetDataOut (GET /dashboards/{id}/widgets/{wid}/data)
 {
-  "id": 5, "title": "April merchants",
-  "widget": {
-    "type": "bar", "title": "Top merchants — April",
-    "data": { "categories": [{"label": "TRADER JOES", "value": 412.10}] }
-  },
-  "source_message_id": 33,
-  "created_at": "..."
+  "type": "pie",
+  "data": { "slices": [...], "total": 412.10 },
+  "is_snapshot": false
 }
 ```
 
@@ -154,16 +152,16 @@ All routes are gated behind the `widgets` feature flag (defaults **on**). 403 + 
 The chat AI's output tool, `present_to_user`, takes:
 
 - `text: str` — what the user reads.
-- `widget: WidgetSpec?` — a polymorphic `{type, title, data}` payload. The system prompt strongly encourages a widget on any answer that carries data the user can see, and describes each type's data shape so the AI can pick the most intuitive one.
+- `widget: WidgetSpec?` — polymorphic `{type, title, data?, metric_id?, metric_params?, time_range?, fallback_reason?}`. The system prompt strongly encourages the AI to set `metric_id` + `metric_params` (re-runnable) and provide a `time_range` for the chat-time window. The orchestrator resolves the metric server-side so the data shown in chat is exactly what a dashboard with the same range would render. Snapshot fallback (with `fallback_reason`) is allowed when no registry metric fits.
 - `chart: ChartSpec?` — **deprecated**, kept for backward compatibility. If present, it's auto-wrapped as a timeseries widget via [`widget_from_chart`](../backend/src/budget_trace_backend/models.py).
 
-The system prompt (see [`chat.py::_SYSTEM_PROMPT_TEMPLATE`](../backend/src/budget_trace_backend/chat.py)) tells the model:
+The system prompt (see [`chat.py::_SYSTEM_PROMPT_TEMPLATE`](../backend/src/budget_trace_backend/chat.py)) inlines the full metric catalogue (id, label, compatible widget types, params) so the AI can pick a metric and supply valid params without an extra tool call. It tells the model:
 
-> Strongly prefer answering with a `widget` whenever the answer carries data the user can see. A widget paired with one or two sentences of context is almost always better than text alone. Only omit the widget for clarifications, write-tool confirmations, or simple yes/no answers.
+> Strongly prefer emitting `metric_id` + `metric_params` so the widget is savable to a dashboard. Only omit them when no registry metric can express the answer; include a short `fallback_reason` for audit.
 
-…followed by a per-type guide pairing each widget type with the situations it suits best and the exact `data` shape it requires.
+The chat orchestrator parses `widget` first, falling back to `chart` → wrapped. For metric-backed widgets it calls `widget_metrics.resolve_metric_data` to produce the chat snapshot. The full payload (incl. `metric_id` / `metric_params` when present) is persisted on the assistant message (`chat_messages.widget_json`) and the frontend renders it inline in the transcript via the same `WidgetCard` used on dashboards (`previewData` short-circuits the data fetch).
 
-The chat orchestrator parses `widget` first, falling back to `chart` → wrapped. The chosen widget is persisted on the assistant message (`chat_messages.widget_json`) and the frontend renders it inline in the transcript via the same `WidgetCard` used on dashboards (`previewData` short-circuits the data fetch).
+Snapshot fallbacks trigger an `ai_widget_audit` row, written by the chat-session route after the assistant message is persisted. `GET /ai-widget-audit` surfaces these rows so the curated registry can be grown to cover recurring gaps.
 
 ## Frontend shape
 
@@ -209,24 +207,24 @@ CREATE TABLE widgets (
     layout_y          INTEGER NOT NULL,
     layout_w          INTEGER NOT NULL,
     layout_h          INTEGER NOT NULL,
-    data_source_json  TEXT    NOT NULL,         -- {kind: "metric", metric_id, params} | {kind: "insight", insight_id}
+    data_source_json  TEXT    NOT NULL,         -- {kind: "metric", metric_id, params} | {kind: "snapshot"}
     config_json       TEXT    NOT NULL,         -- per-type display options; usually {}
+    snapshot_json     TEXT,                     -- frozen {type, title, data} payload when kind = 'snapshot'
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL
 );
 
-CREATE TABLE saved_insights (
-    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    title              TEXT    NOT NULL,
-    source_message_id  INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL,
-    chart_json         TEXT,                    -- legacy; nullable. New rows write widget_json.
-    widget_json        TEXT,                    -- {type, title, data}
-    created_at         TEXT    NOT NULL
+CREATE TABLE ai_widget_audit (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id      INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE,
+    widget_type     TEXT    NOT NULL,
+    fallback_reason TEXT,
+    user_question   TEXT,
+    created_at      TEXT    NOT NULL
 );
 ```
 
-Also: `users.last_dashboard_id` (added via `_add_column_if_missing`) — the dashboard the user was last viewing, so the Widgets tab reopens on the same one. `GET /dashboards/{id}` has a side-effect of stamping it. `chat_messages.widget_json` carries the new polymorphic payload alongside the legacy `chart_json` (read prefers `widget_json`, falls back to wrapping `chart_json`).
+Also: `users.last_dashboard_id` (added via `_add_column_if_missing`) — the dashboard the user was last viewing, so the Widgets tab reopens on the same one. `GET /dashboards/{id}` has a side-effect of stamping it. `chat_messages.widget_json` carries the polymorphic payload (`{type, title, data, metric_id?, metric_params?, fallback_reason?}`) alongside the legacy `chart_json` (read prefers `widget_json`, falls back to wrapping `chart_json`). The legacy `saved_insights` table is dropped at every startup.
 
 ## Feature flag
 
@@ -238,7 +236,8 @@ The env-var override (`BUDGET_TRACE_FEATURES=widgets`) still works for tests / C
 
 - **`category_path = "Unknown"`** is the literal string used by MCP tools to filter for `category_id IS NULL`. The drawer's category dropdown includes the path "Unknown" (the symbolic category row), but selecting it only makes sense as a *filter*, not as a real grouping. Same overload pitfall as in `list_transactions`.
 - **`spend_forecast` ignores the dashboard time range.** Its `data` returns historical data for the trailing 12 months ending today, plus the projected horizon. If you add another metric with a similar self-contained window, set `uses_time_range=False` so the frontend can warn the user.
-- **Saved insights are typed.** A pie-typed saved insight cannot back a timeseries widget — `_validate_data_source` rejects the mismatch at create / update time. If you let the user re-type a saved insight, you'd silently break its frozen `data` shape.
+- **Snapshot widgets ignore the dashboard time range too** — that's the trade-off for letting the AI emit a one-off shape no metric covers. `WidgetDataOut.is_snapshot = true` is the signal for the chrome to badge the card and disable refresh. Don't add a code path that re-resolves a snapshot against the dashboard's range; the original query was never captured.
+- **Snapshots are only built from chat saves.** `_validate_data_source` rejects `kind:"snapshot"` from external clients; only `save_chat_widget_to_dashboard` writes them.
 - **Layout migrations.** Bumping a widget type's minimum size (e.g. `query_value` from 1×1 to 2×2) does *not* require a DB migration: `_widget_row_to_dict` clamps width and height up to current min on read. The DB row catches up the next time the layout is written.
 - **Per-widget date params don't exist.** If you find yourself adding `start` / `end` to a metric's `params_schema`, stop — those live on the dashboard now, get passed via `time_range`, and the schema explicitly excludes them.
 - **Drag-handle hit testing.** Don't switch the `_DragHandle`'s `HitTestBehavior` back to `opaque` — the titlebar buttons sit behind it and rely on `translucent` to receive taps.

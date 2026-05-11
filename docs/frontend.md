@@ -33,13 +33,13 @@ All clients sit in `lib/services/` and follow the same pattern: take an optional
 
 | File | Purpose |
 |------|---------|
-| [lib/models/chat_message.dart](../frontend/lib/models/chat_message.dart) | `ChatMessage { role, text, widget?, pending, errored }` and `ChatRole`. |
+| [lib/models/chat_message.dart](../frontend/lib/models/chat_message.dart) | `ChatMessage { id?, role, text, widget?, pending, errored }` and `ChatRole`. `id` is the server-assigned message id (used by the save-to-dashboard flow). |
 | [lib/models/chart_spec.dart](../frontend/lib/models/chart_spec.dart) | Wire-format `ChartSpec`/`ChartSeriesSpec` with `fromJson` + `buildChart()` to render via `TimeseriesChart`. Used inside the `timeseries` widget renderer. |
-| [lib/models/dashboard.dart](../frontend/lib/models/dashboard.dart) | `WidgetPayload { type, title, data }` (shared with `SavedInsight` and `WidgetCard`), plus the dashboard model. |
+| [lib/models/dashboard.dart](../frontend/lib/models/dashboard.dart) | `WidgetPayload { type, title, data, metricId?, metricParams?, fallbackReason? }`, plus the dashboard model. `isSnapshot` is true when no `metricId` was emitted. |
 
 Modified:
 
-- [lib/screens/insights_screen.dart](../frontend/lib/screens/insights_screen.dart) — renders the assistant's `widget` inline below the text via the same [`WidgetCard`](../frontend/lib/widgets/dash_widgets/widget_card.dart) used on dashboards. A "Save as widget" affordance per message lifts the rendered widget into `saved_insights` for re-use on a dashboard.
+- [lib/screens/insights_screen.dart](../frontend/lib/screens/insights_screen.dart) — renders the assistant's `widget` inline below the text via the same [`WidgetCard`](../frontend/lib/widgets/dash_widgets/widget_card.dart) used on dashboards. A "Save to dashboard…" affordance per message opens a dashboard picker and creates a widget directly via `POST /chat/messages/{id}/save-to-dashboard` — re-runnable when the AI emitted a metric_id, snapshot fallback otherwise.
 - [lib/widgets/timeseries_chart.dart](../frontend/lib/widgets/timeseries_chart.dart) — `xTickLabels` thinned to whatever fits the chart's width to avoid label overlap; `height: null` flexes the chart to fill its parent (used by the `timeseries` widget renderer inside the dashboard grid).
 
 ## Widgets / dashboards

@@ -117,6 +117,7 @@ class ChatClient {
         ? WidgetPayload.fromJson(json['widget'] as Map<String, dynamic>)
         : null;
     return ChatMessage(
+      id: json['id'] as int?,
       role: role,
       text: json['text'] as String? ?? '',
       widget: widget,

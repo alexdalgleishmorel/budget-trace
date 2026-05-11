@@ -1,9 +1,13 @@
-"""REST routes for dashboards, widgets, and saved insights.
+"""REST routes for dashboards and widgets.
 
 Gated behind the `widgets` feature flag (defaults on). Single-user dev today
 — `DEFAULT_USER_ID` is hardcoded; when auth lands the routes will read
 `user_id` from the request session and the service-layer signatures stay
 the same.
+
+The save-chat-to-dashboard route lives here too because the saved payload
+is always a widget on a dashboard — there is no separate "saved insight"
+inbox any more.
 """
 
 from __future__ import annotations
@@ -13,8 +17,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .. import features
 from ..features import DEFAULT_USER_ID
-from ..models import WidgetSpec
-from ..services import dashboards as svc
+from ..services import ai_widget_audit, dashboards as svc
+from ..services import chat_sessions as chat_svc
 from ..services import widget_metrics
 from ..services.categories import ServiceError
 
@@ -76,8 +80,9 @@ class DashboardPatch(BaseModel):
 class WidgetCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
     type: str
-    title: str
-    layout: WidgetLayout
+    # Optional — when omitted, the server places the widget at the next
+    # free row below the existing grid contents using the type's min size.
+    layout: WidgetLayout | None = None
     data_source: dict
     config: dict = Field(default_factory=dict)
 
@@ -110,21 +115,26 @@ class LayoutUpdateResult(BaseModel):
 class WidgetDataOut(BaseModel):
     type: str
     data: dict
+    is_snapshot: bool = False
+    via_chat: bool = False
 
 
-class SavedInsightOut(BaseModel):
+class SaveChatWidgetRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    dashboard_id: int
+
+
+class AiWidgetAuditRow(BaseModel):
     id: int
-    title: str
-    widget: WidgetSpec
-    source_message_id: int | None = None
+    message_id: int | None = None
+    widget_type: str
+    fallback_reason: str | None = None
+    user_question: str | None = None
     created_at: str
 
 
-class SavedInsightCreate(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-    title: str
-    widget: WidgetSpec
-    source_message_id: int | None = None
+class AiWidgetAuditList(BaseModel):
+    rows: list[AiWidgetAuditRow]
 
 
 class WidgetMetricDefOut(BaseModel):
@@ -342,45 +352,62 @@ def get_widget_data(dashboard_id: int, widget_id: int) -> WidgetDataOut:
         raise _err(e)
 
 
-# ── Saved insights ───────────────────────────────────────────────────────────
+# ── Save chat widget to a dashboard ──────────────────────────────────────────
 
 
-def _saved_to_out(r: dict) -> SavedInsightOut:
-    return SavedInsightOut(
-        id=r["id"], title=r["title"],
-        widget=WidgetSpec(**r["widget"]),
-        source_message_id=r.get("source_message_id"),
-        created_at=r["created_at"],
-    )
+@router.post(
+    "/chat/messages/{message_id}/save-to-dashboard",
+    response_model=WidgetOut, status_code=201,
+)
+def save_chat_widget(
+    message_id: int, payload: SaveChatWidgetRequest,
+) -> WidgetOut:
+    """Create a dashboard widget from an AI assistant message.
 
-
-@router.get("/saved-insights", response_model=list[SavedInsightOut])
-def list_saved() -> list[SavedInsightOut]:
+    When the message's widget carries `metric_id` + `metric_params`, the
+    new dashboard widget is `kind:"metric"` and follows the dashboard's
+    time range on every render. Otherwise it's `kind:"snapshot"` —
+    frozen bytes that ignore the dashboard's time range.
+    """
     _require_widgets_flag()
-    return [_saved_to_out(r) for r in svc.list_saved_insights(DEFAULT_USER_ID)]
-
-
-@router.post("/saved-insights", response_model=SavedInsightOut, status_code=201)
-def create_saved(payload: SavedInsightCreate) -> SavedInsightOut:
-    _require_widgets_flag()
+    msg = chat_svc.get_message(message_id)
+    if msg is None:
+        raise HTTPException(status_code=404, detail="chat message not found")
+    if msg.get("role") != "assistant":
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "validation_error",
+                    "message": "only assistant messages can be saved"},
+        )
+    chat_widget = msg.get("widget")
+    if not chat_widget:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "validation_error",
+                    "message": "message has no widget to save"},
+        )
     try:
-        r = svc.create_saved_insight(
-            DEFAULT_USER_ID, payload.title,
-            payload.widget.model_dump(),
-            source_message_id=payload.source_message_id,
+        out = svc.save_chat_widget_to_dashboard(
+            DEFAULT_USER_ID,
+            dashboard_id=payload.dashboard_id,
+            chat_widget=chat_widget,
         )
     except ServiceError as e:
         raise _err(e)
-    return _saved_to_out(r)
+    return _widget_to_out(out)
 
 
-@router.delete("/saved-insights/{insight_id}", response_model=Deleted)
-def delete_saved(insight_id: int) -> Deleted:
+# ── AI widget audit ──────────────────────────────────────────────────────────
+
+
+@router.get("/ai-widget-audit", response_model=AiWidgetAuditList)
+def list_ai_widget_audit() -> AiWidgetAuditList:
+    """Snapshot-fallback log — the AI's record of answers it couldn't
+    express via a curated metric. Used to grow the metric registry."""
     _require_widgets_flag()
-    try:
-        return Deleted(**svc.delete_saved_insight(DEFAULT_USER_ID, insight_id))
-    except ServiceError as e:
-        raise _err(e)
+    return AiWidgetAuditList(
+        rows=[AiWidgetAuditRow(**r) for r in ai_widget_audit.list_audit_rows()],
+    )
 
 
 # ── Widget-metric registry ───────────────────────────────────────────────────

@@ -23,6 +23,7 @@ class QueryValueWidgetBody extends StatelessWidget {
     }
 
     final fmt = data.queryValueFormat;
+    final unit = data.queryUnit;
     final comparison = data.queryComparison;
 
     return Center(
@@ -32,15 +33,28 @@ class QueryValueWidgetBody extends StatelessWidget {
         children: [
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text(
-              _formatValue(value, fmt),
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                  text: _formatValue(value, fmt),
+                  style: TextStyle(
+                    fontSize: 36,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: -0.4,
+                    color: bt.ink,
+                  ),
+                ),
+                if (unit != null && unit.isNotEmpty)
+                  TextSpan(
+                    text: ' / $unit',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w500,
+                      color: bt.ink4,
+                    ),
+                  ),
+              ]),
               maxLines: 1,
-              style: TextStyle(
-                fontSize: 36,
-                fontWeight: FontWeight.w600,
-                letterSpacing: -0.4,
-                color: bt.ink,
-              ),
             ),
           ),
           if (comparison != null) ...[
