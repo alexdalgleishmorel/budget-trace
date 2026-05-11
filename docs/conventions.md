@@ -18,14 +18,21 @@ Cross-cutting things that are easy to get wrong and cause half-hour debugging se
 
 ## JSON casing across the wire
 
-- **Backend → wire: snake_case.** Pydantic's default. Field names like `y_axis_label`, `x_tick_labels`, `period_start`.
-- **Dart side: camelCase.** The `fromJson` constructors in `chart_spec.dart` translate manually. There's no auto-codegen; if you add a field, add it in both places.
+- **Backend → wire: snake_case.** Pydantic's default. Field names like `y_axis_label`, `x_tick_labels`, `period_start`, `data_source`, `time_range`.
+- **Dart side: camelCase.** The `fromJson` constructors in `chart_spec.dart`, `dashboard.dart`, etc. translate manually. There's no auto-codegen; if you add a field, add it in both places.
 
 | Backend (snake_case) | Dart (camelCase) |
 |----------------------|------------------|
 | `y_axis_label` | `yAxisLabel` |
 | `x_axis_label` | `xAxisLabel` |
 | `x_tick_labels` | `xTickLabels` |
+| `data_source` | `dataSource` |
+| `time_range` | `timeRange` |
+| `last_dashboard_id` | `lastDashboardId` |
+| `source_message_id` | `sourceMessageId` |
+| `widget_types` | `widgetTypes` |
+| `params_schema` | `paramsSchema` |
+| `widget_min_sizes` | `minSizes` (renamed in the Dart model for ergonomics) |
 
 ## Tool naming
 
@@ -46,12 +53,15 @@ Frontend's `decodeOrThrow` ([api_base.dart](../frontend/lib/services/api_base.da
 
 ## Feature flags
 
-One master flag: **`ai`**. When on, all of these turn on together:
-- `POST /transactions/import?parser=ai` returns 200 instead of 403.
-- `POST /chat/sessions/{id}/messages` (the only AI-calling chat route) returns 200 instead of 403; historical reads stay open regardless.
-- Every successful import (CSV or AI) triggers auto-categorization on the freshly inserted rows. CSV-only flows still work with `ai` off.
+Two flags today, both per-user (single user today, id=1), DB-backed as JSON in `users.features`:
 
-Per-user (single user today, id=1). DB-backed JSON in `users.features`. Flip it via the Account screen (`PATCH /me`) or the `BUDGET_TRACE_FEATURES=ai` env var (which still wins for local dev / tests). See [account.md](account.md).
+- **`ai`** — off by default. When on:
+  - `POST /transactions/import?parser=ai` returns 200 instead of 403.
+  - `POST /chat/sessions/{id}/messages` (the only AI-calling chat route) returns 200 instead of 403; historical reads stay open regardless.
+  - Every successful import (CSV or AI) triggers auto-categorization on the freshly inserted rows. CSV-only flows still work with `ai` off.
+- **`widgets`** — on by default (configured in [`features.py::DEFAULT_ON_FLAGS`](../backend/src/budget_trace_backend/features.py)). When on, the Widgets tab is reachable and every `/dashboards/*`, `/widget-metrics`, `/saved-insights/*` route returns 200 instead of 403. When off, the tab is hidden and the routes 403 with `feature_disabled`. See [widgets.md](widgets.md).
+
+Flip either via the `/me` API (`PATCH /me {"features": {"ai": true}}` etc.) or via the `BUDGET_TRACE_FEATURES=ai,widgets` env var (comma-separated; still wins for local dev / tests). See [account.md](account.md).
 
 ## Same-merchant → same category
 

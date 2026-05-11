@@ -19,11 +19,11 @@ from ..help_text import build_help_markdown
 from ..models import (
     AppendMessageRequest,
     AppendMessageResponse,
-    ChartSpec,
     ChatMessageOut,
     ChatRequest,
     ChatSessionOut,
     ChatTurn,
+    WidgetSpec,
 )
 from ..services import chat_sessions as svc
 from ..services.ai.client import AiKeyMissing
@@ -79,7 +79,7 @@ def append_message(session_id: int, body: AppendMessageRequest) -> AppendMessage
     try:
         reply = run_chat(ChatRequest(messages=turns, chat_session_id=session_id))
         assistant_text = reply.text
-        chart_payload = reply.chart.model_dump() if reply.chart else None
+        widget_payload = reply.widget.model_dump() if reply.widget else None
         cost_usd = reply.cost_usd
         session_spent_usd = reply.session_spent_usd
         errored = False
@@ -90,14 +90,14 @@ def append_message(session_id: int, body: AppendMessageRequest) -> AppendMessage
         )
     except Exception as e:  # noqa: BLE001
         assistant_text = f"Error: {e}"
-        chart_payload = None
+        widget_payload = None
         errored = True
 
     assistant_msg = svc.append_message(
         session_id,
         "assistant",
         assistant_text,
-        chart=chart_payload,
+        widget=widget_payload,
         errored=errored,
     )
 
@@ -118,13 +118,13 @@ def delete_session(session_id: int) -> dict:
 
 
 def _message_to_out(m: dict) -> ChatMessageOut:
-    chart = ChartSpec(**m["chart"]) if m.get("chart") else None
+    widget = WidgetSpec(**m["widget"]) if m.get("widget") else None
     return ChatMessageOut(
         id=m["id"],
         sequence=m["sequence"],
         role=m["role"],
         text=m["text"],
-        chart=chart,
+        widget=widget,
         errored=bool(m.get("errored", False)),
         created_at=m["created_at"],
     )

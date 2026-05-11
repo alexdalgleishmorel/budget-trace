@@ -98,7 +98,7 @@ The CategoryChip dropdown and the TransactionEditModal in the Expenses screen bo
 
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
-| `GET` | `/me` | — | `{ features: { ai }, theme, providers: [...], selected_model, selected_model_provider, selected_model_key_available, available_models: [...], ai_spent_usd }` |
+| `GET` | `/me` | — | `{ features: { ai, widgets }, theme, providers: [...], selected_model, selected_model_provider, selected_model_key_available, available_models: [...], ai_spent_usd, last_dashboard_id }` |
 | `PATCH` | `/me` | partial: `{ features?, theme?, selected_model?, provider_keys? }` | same as GET |
 
 Key values themselves are **never** echoed — each entry in `providers` exposes only `api_key_set` (plus `env_fallback` when the matching env var is set). PATCH is partial: omit a field to leave it unchanged. Set or clear per-provider keys with `provider_keys: { "<provider>": "sk-..." | null }`; an empty string is a 422 (use `null` to clear). Set `selected_model` to any id from `available_models`; pass `null` to reset to env/default. `theme` is one of `system`, `light`, `dark`. `features` is a partial dict — today the only flag is `ai`. Full schema in [account.md](account.md).
@@ -108,6 +108,35 @@ Single-user dev today (id=1). The `BUDGET_TRACE_FEATURES=ai` env var still wins 
 ## Chat
 
 Routes documented in [insights-ai.md](insights-ai.md). `POST /chat/sessions/{id}/messages` is the only AI-calling route — it returns `403 feature_disabled` when `ai` is off, and `400 ai_key_missing` when `ai` is on but no API key is configured for the selected model's provider. Historical `GET`s and `GET /chat/help` stay open regardless.
+
+Assistant turns may carry an optional `widget` field — a polymorphic `{type, title, data}` payload that the frontend renders inline in the transcript. See [widgets.md](widgets.md#widget-types) for the per-type `data` shape.
+
+## Dashboards & widgets
+
+All routes are gated behind the `widgets` feature flag (defaults on). 403 + `feature_disabled` when off. Full reference in [widgets.md](widgets.md).
+
+| Method | Path | Body | Returns |
+|--------|------|------|---------|
+| `GET` | `/dashboards` | — | `[DashboardSummary]` |
+| `POST` | `/dashboards` | `{ name }` | `DashboardSummary` (201) |
+| `GET` | `/dashboards/{id}` | — | `DashboardOut` (and stamps `users.last_dashboard_id`) |
+| `PATCH` | `/dashboards/{id}` | `{ name?, time_range? }` | `DashboardSummary` |
+| `DELETE` | `/dashboards/{id}` | — | `{ deleted_id }` |
+| `POST` | `/dashboards/{id}/widgets` | `WidgetCreate` | `WidgetOut` (201) |
+| `PATCH` | `/dashboards/{id}/widgets/{wid}` | `WidgetUpdate` (any subset of title, layout, data_source, config) | `WidgetOut` |
+| `DELETE` | `/dashboards/{id}/widgets/{wid}` | — | `{ deleted_id }` |
+| `PUT` | `/dashboards/{id}/layout` | `{ layouts: [{id, x, y, w, h}] }` | `{ updated: N }` |
+| `GET` | `/dashboards/{id}/widgets/{wid}/data` | — | `{ type, data }` shaped per widget type |
+| `GET` | `/widget-metrics` | — | `{ metrics: [...], widget_min_sizes: {...}, time_range_presets: [...] }` |
+| `GET` | `/saved-insights` | — | `[SavedInsightOut]` |
+| `POST` | `/saved-insights` | `{ title, widget, source_message_id? }` | `SavedInsightOut` (201) |
+| `DELETE` | `/saved-insights/{id}` | — | `{ deleted_id }` |
+
+Time range is a dashboard-level field that applies to every widget on it; per-widget date params don't exist. Presets (`last_30_days`, `last_3_months`, `last_6_months`, `last_12_months`, `month_to_date`, `year_to_date`, `all_time`, `custom`) resolve to concrete dates server-side at request time. Use `preset: "custom"` with `custom_start` / `custom_end` for an arbitrary window. Changing the range bumps every widget's `updated_at` so the frontend re-fetches.
+
+Layout `PUT` validates each entry against the widget type's minimum size (`/widget-metrics → widget_min_sizes`). Layouts stored below the current minimum are auto-clamped on **read** so a min-size bump doesn't require a DB migration.
+
+`SavedInsightCreate` accepts a `widget` of any of the six types. The `widget`'s type is sticky: a widget that references this insight must declare the same `type`, otherwise `_validate_data_source` rejects it with 400 + `incompatible_widget_type`.
 
 ## What's *not* here
 

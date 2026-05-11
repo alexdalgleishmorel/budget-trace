@@ -37,6 +37,10 @@ class ChartSeries {
 /// Generic line chart with auto-scaled axes, multiple series, and a forecast
 /// (dashed) line style. Designed to be driven by AI-generated insight specs:
 /// give it a title, a list of [ChartSeries], and it renders.
+///
+/// `height` is optional: when null, the chart flexes to fill its parent's
+/// remaining vertical space. Pass an explicit value for fixed-height use
+/// (e.g. inside scrollable lists like the Insights transcript).
 class TimeseriesChart extends StatelessWidget {
   const TimeseriesChart({
     super.key,
@@ -45,7 +49,7 @@ class TimeseriesChart extends StatelessWidget {
     this.xAxisLabel,
     this.yAxisLabel,
     this.xTickLabels,
-    this.height = 240,
+    this.height,
   });
 
   final String title;
@@ -58,7 +62,9 @@ class TimeseriesChart extends StatelessWidget {
   /// last at xMax, others evenly spaced between.
   final List<String>? xTickLabels;
 
-  final double height;
+  /// Null = flex to fill parent (use inside a sized box / Expanded).
+  /// Non-null = fixed height (use inside scroll views).
+  final double? height;
 
   @override
   Widget build(BuildContext context) {
@@ -75,6 +81,15 @@ class TimeseriesChart extends StatelessWidget {
               color: palette[i % palette.length],
             );
     });
+
+    final painter = CustomPaint(
+      painter: _ChartPainter(
+        series: coloured,
+        bt: bt,
+        xTickLabels: xTickLabels,
+      ),
+      size: Size.infinite,
+    );
 
     return BudgetCard(
       child: Padding(
@@ -93,17 +108,10 @@ class TimeseriesChart extends StatelessWidget {
               BudgetLabel(yAxisLabel!),
             ],
             const SizedBox(height: 10),
-            SizedBox(
-              height: height,
-              child: CustomPaint(
-                painter: _ChartPainter(
-                  series: coloured,
-                  bt: bt,
-                  xTickLabels: xTickLabels,
-                ),
-                size: Size.infinite,
-              ),
-            ),
+            if (height != null)
+              SizedBox(height: height, child: painter)
+            else
+              Expanded(child: painter),
             if (xAxisLabel != null) ...[
               const SizedBox(height: 4),
               Center(child: BudgetLabel(xAxisLabel!)),
@@ -240,12 +248,37 @@ class _ChartPainter extends CustomPainter {
           Offset(_padL - 4, y - 5), labelStyle, TextAlign.right);
     }
 
-    // X-axis labels: explicit ticks if supplied (evenly spaced), otherwise
-    // just the numeric endpoints.
+    // X-axis labels: explicit ticks if supplied (thinned to whatever fits
+    // the available width without overlap), otherwise just the numeric
+    // endpoints.
     final ticks = xTickLabels;
     if (ticks != null && ticks.isNotEmpty) {
       final n = ticks.length;
-      for (var i = 0; i < n; i++) {
+
+      // Measure the widest label so we can compute how many fit. A small
+      // gap keeps adjacent labels visually separated.
+      double maxLabelWidth = 0;
+      for (final label in ticks) {
+        final tp = TextPainter(
+          text: TextSpan(text: label, style: labelStyle),
+          textDirection: TextDirection.ltr,
+        )..layout();
+        if (tp.width > maxLabelWidth) maxLabelWidth = tp.width;
+      }
+      const labelGap = 12.0;
+      final slot = maxLabelWidth + labelGap;
+      final maxLabels = slot > 0 ? (innerW / slot).floor() : n;
+      // Stride between rendered labels; always show first + last when
+      // there's room for at least two.
+      final stride = maxLabels <= 1 ? n : ((n - 1) / (maxLabels - 1)).ceil().clamp(1, n);
+
+      final drawn = <int>{};
+      for (var i = 0; i < n; i += stride) {
+        drawn.add(i);
+      }
+      drawn.add(n - 1); // ensure the final label is always drawn
+
+      for (final i in drawn) {
         final t = n == 1 ? 0.5 : i / (n - 1);
         final x = _padL + t * innerW;
         final align = i == 0

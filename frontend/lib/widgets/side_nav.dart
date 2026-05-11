@@ -12,6 +12,7 @@ class SideNav extends StatelessWidget {
     required this.cycleLabels,
     required this.onCycleChange,
     required this.onOpenAccount,
+    this.showWidgets = true,
   });
 
   final int current;
@@ -21,19 +22,24 @@ class SideNav extends StatelessWidget {
   final ValueChanged<String> onCycleChange;
   final VoidCallback onOpenAccount;
 
-  // Tab indices are stable across the app: 0=Categories, 1=Expenses,
-  // 2=Insights. All three are always rendered — when AI is off, the
-  // Insights screen itself renders an "enable AI" promo instead of the chat.
+  /// When false, hide the Widgets entry. Other tab indices keep their
+  /// stable positions: 0=Categories, 1=Expenses, 3=Insights.
+  final bool showWidgets;
+
+  // Stable indices across the app:
+  //   0=Categories, 1=Expenses, 2=Widgets, 3=Insights.
   static const _items = [
-    (icon: 'grid', label: 'Categories'),
-    (icon: 'expenses', label: 'Expenses'),
-    (icon: 'search', label: 'Insights'),
+    (idx: 0, icon: 'grid', label: 'Categories'),
+    (idx: 1, icon: 'expenses', label: 'Expenses'),
+    (idx: 2, icon: 'results', label: 'Widgets'),
+    (idx: 3, icon: 'search', label: 'Insights'),
   ];
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final visibleCount = _items.length;
+    final visibleItems =
+        _items.where((it) => showWidgets || it.idx != 2).toList();
     return Container(
       width: 220,
       decoration: BoxDecoration(
@@ -57,16 +63,16 @@ class SideNav extends StatelessWidget {
               ),
             ),
           ),
-          ...List.generate(visibleCount, (i) {
-            final item = _items[i];
-            final active = i == current;
+          ...List.generate(visibleItems.length, (i) {
+            final item = visibleItems[i];
+            final active = item.idx == current;
             return Padding(
               padding: const EdgeInsets.only(bottom: 2),
               child: Material(
                 color: active ? bt.ink : Colors.transparent,
                 borderRadius: const BorderRadius.all(Radius.circular(6)),
                 child: InkWell(
-                  onTap: () => onNav(i),
+                  onTap: () => onNav(item.idx),
                   borderRadius: const BorderRadius.all(Radius.circular(6)),
                   hoverColor: active ? null : bt.surface2,
                   child: Padding(

@@ -6,6 +6,7 @@ import '../screens/account_screen.dart';
 import '../screens/categories_screen.dart';
 import '../screens/expenses_screen.dart';
 import '../screens/insights_screen.dart';
+import '../screens/widgets_screen.dart';
 import '../services/categories_client.dart';
 import '../services/category_tree_builder.dart';
 import '../services/me_client.dart';
@@ -20,8 +21,9 @@ const kDesktopBreakpoint = 600.0;
 /// Top-level shell. Owns the loaded category tree and the current cycle's
 /// transaction list; takes the user [Me] from the parent (so theme + AI flag
 /// changes from AccountScreen flow back up to MaterialApp). Tab indices are
-/// stable: 0=Categories, 1=Expenses, 2=Insights — all three tabs are always
-/// rendered, and the Insights screen handles its own AI-disabled empty state.
+/// stable across the app: 0=Categories, 1=Expenses, 2=Widgets, 3=Insights.
+/// The Widgets tab is hidden when `me.features.widgets` is off (the gap in
+/// indices is irrelevant — nav lists filter the entry out).
 class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
@@ -246,6 +248,21 @@ class _AppShellState extends State<AppShell> {
     }
 
     if (tab == 2) {
+      if (!widget.me.features.widgets) {
+        // Widgets flag was flipped off (or never on). Redirect quietly to
+        // Categories so we don't render an empty pane.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) setState(() => _tab = 0);
+        });
+        return const _LoadingPanel();
+      }
+      return WidgetsScreen(
+        lastDashboardId: widget.me.lastDashboardId,
+        onLastDashboardChanged: () => widget.onRefreshMe(),
+      );
+    }
+
+    if (tab == 3) {
       return InsightsScreen(
         aiEnabled: widget.me.features.ai,
         apiKeySet: widget.me.selectedModelKeyAvailable,
@@ -274,6 +291,7 @@ class _AppShellState extends State<AppShell> {
                   cycleLabels: _cycleLabels,
                   onCycleChange: _onCycleChange,
                   onOpenAccount: _openAccount,
+                  showWidgets: widget.me.features.widgets,
                 ),
                 Expanded(child: _buildScreen(_tab)),
               ],
@@ -288,6 +306,7 @@ class _AppShellState extends State<AppShell> {
               BottomTabsBar(
                 current: _tab,
                 onNav: _onNav,
+                showWidgets: widget.me.features.widgets,
               ),
             ],
           ),

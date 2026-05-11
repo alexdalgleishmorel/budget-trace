@@ -29,7 +29,7 @@ from datetime import date
 from typing import Any, get_type_hints
 
 from .mcp_server import READ_TOOLS, WRITE_TOOLS
-from .models import ChartSpec, ChatRequest, ChatResponse
+from .models import ChatRequest, ChatResponse, WidgetSpec, widget_from_chart
 from .services import ai_usage
 from .services.ai.client import chat as ai_chat
 from .services.ai.client import get_selected_model
@@ -44,10 +44,22 @@ Rules:
 - Use the MCP-style data tools (list_categories, list_transactions, aggregate_spending, top_merchants, compare_periods, forecast) to fetch whatever you need. The tools operate on the user's actual SQLite-backed transaction store.
 - All dates are ISO format ("YYYY-MM-DD"). Category paths use " / " as the separator (e.g. "Living / Grocery"). When the user names a category informally, call list_categories first and match against the descriptions.
 - Today's date is {today}. When the user mentions a relative period ("April", "last month", "this quarter"), resolve it to an ISO date range using today's date and pass `start_date` / `end_date` to the data tools.
-- Your final action MUST be exactly one call to `present_to_user`. Do NOT emit text outside of that tool call. The `text` argument is what the user will read; keep it concise (2-4 short sentences). Use a `chart` argument only when a time-series visualisation would meaningfully strengthen your answer (trends across months, period-over-period comparisons, forecasts). For one-off totals, top-N lists, or yes/no answers, omit the chart.
-- When you do return a chart: pick `solid` for observed/historical data and `dashed` for forecasts. Set `x_tick_labels` to human-readable period labels matching the points (e.g. ["Feb '26", "Mar '26", "Apr '26"]).
+- Your final action MUST be exactly one call to `present_to_user`. Do NOT emit text outside of that tool call. The `text` argument is what the user will read; keep it concise (2-4 short sentences).
 
-You also have write tools for editing categories and transactions (create_category, rename_category, update_category_description, move_category, delete_category, set_transaction_category, bulk_categorise_merchant, rename_merchant, update_transaction, delete_transaction). When the user asks you to make changes, perform them, then briefly summarise what you did in the `text` argument of `present_to_user`. For destructive operations (delete_category, delete_transaction), state explicitly that the change is done and not reversible from the chat. Never call write tools speculatively — only when the user has clearly asked for a change.
+Strongly prefer answering with a `widget` whenever the answer carries data the user can see. A widget paired with one or two sentences of context is almost always better than text alone. Only omit the widget for clarifications, write-tool confirmations, or simple yes/no answers.
+
+Pick the most intuitive widget type for the question — match the shape of the data, not your habit:
+
+- `timeseries` — a line chart over time. Use for trends, seasonality, period-over-period changes, forecasts. The `data.chart` field is a ChartSpec with `series` (solid for observed, dashed for forecasts) and `x_tick_labels` (e.g. ["Feb '26", "Mar '26", "Apr '26"]).
+- `bar` — ranked horizontal bars. Use for comparing buckets (categories side-by-side, weekly spend, top merchants by total). `data.categories` is a list of `{label, value}` in the order you want shown.
+- `pie` — donut chart of how a total breaks down. Use when there are 3–7 groups summing to a meaningful whole and proportion matters. `data.slices` is a list of `{label, value}`; `data.total` is the sum.
+- `query_value` — single headline number with an optional delta chip. Use for KPIs ("how much did I spend in April?", "average monthly grocery"). `data.value` is the number, `data.format` is `currency` | `number` | `percent`. Optional `data.comparison` is `{value, delta_abs, delta_pct, label}` where label might be "vs. March".
+- `table` — rows of structured detail. Use for transactions, merchants with multiple metrics, or anything that's a list of records. `data.columns` is `[{key, label, align: "left"|"right"|"center", format?: "currency"|"number"}]`; `data.rows` is a list of objects keyed by column key.
+- `treemap` — nested rectangles sized by value. Use when there are many categories and the user wants to see proportion across all of them at once. `data.nodes` is a list of `{label, value}`.
+
+Always set `widget.title` (e.g. "Spend by category — April 2026"); the user sees it in the widget's title bar.
+
+You also have write tools for editing categories and transactions (create_category, rename_category, update_category_description, move_category, delete_category, set_transaction_category, bulk_categorise_merchant, rename_merchant, update_transaction, delete_transaction). When the user asks you to make changes, perform them, then briefly summarise what you did in the `text` argument of `present_to_user` — for write-only operations the widget should typically be omitted. For destructive operations (delete_category, delete_transaction), state explicitly that the change is done and not reversible from the chat. Never call write tools speculatively — only when the user has clearly asked for a change.
 """
 
 
@@ -125,17 +137,58 @@ PRESENT_TOOL: dict = {
     "function": {
         "name": "present_to_user",
         "description": (
-            "Output channel. Call exactly once at the end of your turn. The text "
-            "field is what the user reads; the optional chart field renders as a "
-            "time-series chart pinned above the chat."
+            "Output channel. Call exactly once at the end of your turn. `text` "
+            "is what the user reads. Pair it with a `widget` whenever the answer "
+            "contains data the user can see — pick the widget type that best "
+            "fits the shape of the data (timeseries for trends, query_value for "
+            "a single number, pie/bar for categorical breakdowns, table for "
+            "rows of detail, treemap for many-category proportion)."
         ),
         "parameters": {
             "type": "object",
             "properties": {
                 "text": {"type": "string"},
+                "widget": {
+                    "type": "object",
+                    "description": (
+                        "Optional widget to render alongside the text. `type` "
+                        "selects the renderer; `data` is the per-type payload "
+                        "(see the system prompt for shape details)."
+                    ),
+                    "properties": {
+                        "type": {
+                            "type": "string",
+                            "enum": [
+                                "timeseries", "bar", "pie",
+                                "query_value", "table", "treemap",
+                            ],
+                            "description": "Widget renderer to use.",
+                        },
+                        "title": {"type": "string"},
+                        "data": {
+                            "type": "object",
+                            "description": (
+                                "Per-type payload. timeseries: {chart: ChartSpec}. "
+                                "bar: {categories: [{label, value}]}. "
+                                "pie: {slices: [{label, value}], total}. "
+                                "query_value: {value, format: 'currency'|'number'|"
+                                "'percent', comparison?: {value, delta_abs, "
+                                "delta_pct, label}}. "
+                                "table: {columns: [{key, label, align, format?}], "
+                                "rows: [{...}]}. "
+                                "treemap: {nodes: [{label, value}]}."
+                            ),
+                        },
+                    },
+                    "required": ["type", "title", "data"],
+                },
                 "chart": {
                     "type": "object",
-                    "description": "Optional time-series chart spec.",
+                    "description": (
+                        "Deprecated. Prefer `widget` with type='timeseries' "
+                        "instead — this field is kept for backward compatibility "
+                        "and is auto-wrapped server-side."
+                    ),
                     "properties": {
                         "title": {"type": "string"},
                         "y_axis_label": {"type": "string"},
@@ -143,7 +196,6 @@ PRESENT_TOOL: dict = {
                         "x_tick_labels": {
                             "type": "array",
                             "items": {"type": "string"},
-                            "description": "Optional list of x-axis tick labels.",
                         },
                         "series": {
                             "type": "array",
@@ -257,20 +309,33 @@ def run_chat(request: ChatRequest) -> ChatResponse:
         for tc in tool_calls:
             if tc.get("name") == "present_to_user":
                 args = _parse_args(tc.get("arguments_json", ""))
-                chart = None
-                if args.get("chart"):
+                widget: WidgetSpec | None = None
+                # `widget` is the preferred argument; `chart` is the legacy
+                # form (timeseries-only) auto-wrapped into a widget.
+                if args.get("widget"):
                     try:
-                        chart = ChartSpec(**args["chart"])
+                        widget = WidgetSpec(**args["widget"])
                     except Exception:
-                        log.exception("invalid chart spec from model: %r", args.get("chart"))
-                return _finalize(ChatResponse(text=str(args.get("text", "")), chart=chart))
+                        log.exception(
+                            "invalid widget spec from model: %r", args.get("widget"),
+                        )
+                if widget is None and args.get("chart"):
+                    try:
+                        widget = widget_from_chart(args["chart"])
+                    except Exception:
+                        log.exception(
+                            "invalid chart spec from model: %r", args.get("chart"),
+                        )
+                return _finalize(ChatResponse(
+                    text=str(args.get("text", "")), widget=widget,
+                ))
 
         if not tool_calls:
             # Model said something but didn't call any tools. Salvage the
             # plain text and bail.
             return _finalize(
                 ChatResponse(text=(resp.get("content") or _FALLBACK).strip() or _FALLBACK,
-                             chart=None)
+                             widget=None)
             )
 
         # Append the assistant turn (with its tool_calls) and one tool-result
@@ -299,7 +364,7 @@ def run_chat(request: ChatRequest) -> ChatResponse:
                 "content": json.dumps(result, default=str),
             })
 
-    return _finalize(ChatResponse(text=_FALLBACK, chart=None))
+    return _finalize(ChatResponse(text=_FALLBACK, widget=None))
 
 
 def _accumulate(totals: dict, usage: dict) -> None:

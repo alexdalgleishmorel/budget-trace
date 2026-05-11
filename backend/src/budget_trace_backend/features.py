@@ -28,7 +28,12 @@ from .db import connect
 
 DEFAULT_USER_ID = 1
 
-KNOWN_FLAGS = ("ai",)
+KNOWN_FLAGS = ("ai", "widgets")
+
+# Flags that default to ON when the user row doesn't explicitly set them.
+# `ai` stays off-by-default — it requires a provider key to be useful.
+# `widgets` is on-by-default so the Widgets tab is visible on first run.
+DEFAULT_ON_FLAGS = ("widgets",)
 
 Theme = Literal["system", "light", "dark"]
 _VALID_THEMES: tuple[Theme, ...] = ("system", "light", "dark")
@@ -68,7 +73,8 @@ def get_flags(user_id: int = DEFAULT_USER_ID) -> dict[str, bool]:
     stored: dict = json.loads(row["features"]) if row else {}
     out: dict[str, bool] = {}
     for flag in KNOWN_FLAGS:
-        out[flag] = bool(stored.get(flag, False)) or (flag in overrides)
+        default = flag in DEFAULT_ON_FLAGS
+        out[flag] = bool(stored.get(flag, default)) or (flag in overrides)
     return out
 
 
@@ -96,7 +102,8 @@ def get_me(user_id: int = DEFAULT_USER_ID) -> dict:
     with connect() as conn:
         ensure_default_user(conn)
         row = conn.execute(
-            "SELECT features, theme, selected_model FROM users WHERE id = ?",
+            "SELECT features, theme, selected_model, last_dashboard_id "
+            "FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         key_rows = conn.execute(
@@ -107,8 +114,21 @@ def get_me(user_id: int = DEFAULT_USER_ID) -> dict:
         "features": get_flags(user_id),
         "theme": row["theme"],
         "selected_model": row["selected_model"],
+        "last_dashboard_id": row["last_dashboard_id"],
         "provider_keys": {r["provider"]: r["api_key"] for r in key_rows},
     }
+
+
+def set_last_dashboard(dashboard_id: int | None, user_id: int = DEFAULT_USER_ID) -> None:
+    """Persist the user's last-viewed dashboard so the Widgets tab reopens
+    on the same one. Pass None to clear (e.g. after the dashboard is deleted).
+    """
+    with connect() as conn:
+        ensure_default_user(conn)
+        conn.execute(
+            "UPDATE users SET last_dashboard_id = ? WHERE id = ?",
+            (dashboard_id, user_id),
+        )
 
 
 def update_me(

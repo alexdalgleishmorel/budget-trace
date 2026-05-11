@@ -4,20 +4,23 @@ import 'package:http/http.dart' as http;
 
 import 'api_base.dart';
 
-/// The single AI master flag. Replaces the old `ai_import` + `ai_mutations`
-/// pair — when `ai` is on, the user gets PDF/AI parsing, the Insights chat,
-/// and auto-categorization on import.
+/// Feature flags returned by `GET /me`. `ai` gates the Insights chat,
+/// the AI parser, and auto-categorize. `widgets` gates the Widgets tab
+/// and the `/dashboards/*` REST surface; it defaults on server-side.
 class FeatureFlags {
-  const FeatureFlags({required this.ai});
+  const FeatureFlags({required this.ai, required this.widgets});
 
   final bool ai;
+  final bool widgets;
 
-  static const off = FeatureFlags(ai: false);
+  static const off = FeatureFlags(ai: false, widgets: false);
 
-  factory FeatureFlags.fromJson(Map<String, dynamic> j) =>
-      FeatureFlags(ai: j['ai'] as bool? ?? false);
+  factory FeatureFlags.fromJson(Map<String, dynamic> j) => FeatureFlags(
+        ai: j['ai'] as bool? ?? false,
+        widgets: j['widgets'] as bool? ?? false,
+      );
 
-  Map<String, dynamic> toJson() => {'ai': ai};
+  Map<String, dynamic> toJson() => {'ai': ai, 'widgets': widgets};
 }
 
 /// One row in the per-provider key section of the Account screen.
@@ -83,6 +86,7 @@ class Me {
     required this.selectedModelKeyAvailable,
     required this.availableModels,
     required this.aiSpentUsd,
+    this.lastDashboardId,
   });
 
   final FeatureFlags features;
@@ -112,6 +116,11 @@ class Me {
   /// Not the same as your provider bill.
   final double aiSpentUsd;
 
+  /// The dashboard the user was last viewing, persisted server-side so the
+  /// Widgets tab returns to the same spot on reopen. Null when the user
+  /// hasn't viewed any dashboard yet (or the last one was deleted).
+  final int? lastDashboardId;
+
   static const initial = Me(
     features: FeatureFlags.off,
     theme: 'system',
@@ -121,6 +130,7 @@ class Me {
     selectedModelKeyAvailable: false,
     availableModels: [],
     aiSpentUsd: 0.0,
+    lastDashboardId: null,
   );
 
   factory Me.fromJson(Map<String, dynamic> j) => Me(
@@ -138,6 +148,19 @@ class Me {
             .map((e) => ModelOption.fromJson(e as Map<String, dynamic>))
             .toList(growable: false),
         aiSpentUsd: (j['ai_spent_usd'] as num?)?.toDouble() ?? 0.0,
+        lastDashboardId: j['last_dashboard_id'] as int?,
+      );
+
+  Me copyWith({int? lastDashboardId}) => Me(
+        features: features,
+        theme: theme,
+        providers: providers,
+        selectedModel: selectedModel,
+        selectedModelProvider: selectedModelProvider,
+        selectedModelKeyAvailable: selectedModelKeyAvailable,
+        availableModels: availableModels,
+        aiSpentUsd: aiSpentUsd,
+        lastDashboardId: lastDashboardId ?? this.lastDashboardId,
       );
 }
 

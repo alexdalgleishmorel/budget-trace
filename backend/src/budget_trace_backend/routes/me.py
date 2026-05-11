@@ -41,6 +41,7 @@ Theme = Literal["system", "light", "dark"]
 class FeaturesPatch(BaseModel):
     model_config = ConfigDict(extra="forbid")
     ai: bool | None = None
+    widgets: bool | None = None
 
 
 class ModelOption(BaseModel):
@@ -68,6 +69,7 @@ class MeOut(BaseModel):
     selected_model_key_available: bool
     available_models: list[ModelOption]
     ai_spent_usd: float
+    last_dashboard_id: int | None = None
 
 
 # Sentinel for "field not provided" in PATCH. JSON has no `undefined`; the
@@ -171,4 +173,5 @@ def _build_me_out() -> MeOut:
         selected_model_key_available=selected_key_available,
         available_models=[ModelOption(**m) for m in ai_usage.available_models()],
         ai_spent_usd=ai_usage.total_spent_local_usd(),
+        last_dashboard_id=me.get("last_dashboard_id"),
     )

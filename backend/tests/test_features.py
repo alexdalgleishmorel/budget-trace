@@ -27,17 +27,24 @@ def client(seeded_db: Path) -> TestClient:
 
 
 def test_get_flags_default_false(seeded_db: Path) -> None:
-    assert features.get_flags() == {"ai": False}
+    # `ai` is off-by-default (requires a key to be useful); `widgets` is
+    # on-by-default so the tab is visible on a fresh install.
+    assert features.get_flags() == {"ai": False, "widgets": True}
 
 
 def test_set_flag_persists(seeded_db: Path) -> None:
     features.set_flag("ai", True)
-    assert features.get_flags() == {"ai": True}
+    assert features.get_flags() == {"ai": True, "widgets": True}
 
 
 def test_env_override_enables_flag(seeded_db: Path, monkeypatch) -> None:
     monkeypatch.setenv("BUDGET_TRACE_FEATURES", "ai")
-    assert features.get_flags() == {"ai": True}
+    assert features.get_flags() == {"ai": True, "widgets": True}
+
+
+def test_widgets_flag_can_be_disabled(seeded_db: Path) -> None:
+    features.set_flag("widgets", False)
+    assert features.get_flags() == {"ai": False, "widgets": False}
 
 
 def test_set_flag_unknown_raises(seeded_db: Path) -> None:

@@ -4,12 +4,12 @@ Single-user settings for the local-dev build. There's a real `users` table (id=1
 
 ## What lives on the user
 
-- `features` — JSON blob of feature flags. Today it's just `{ "ai": bool }`. The single master flag controls:
-  - PDF / image / general AI parsing on `POST /transactions/import?parser=ai` (403 when off).
-  - Auto-categorize-on-import — every successful CSV or AI import runs the inserted rows through the model via [`importers/categorizer.py`](../backend/src/budget_trace_backend/importers/categorizer.py).
-  - The Insights chat (`POST /chat/sessions/{id}/messages` returns 403 when off; historical reads stay open).
+- `features` — JSON blob of feature flags: `{ "ai": bool, "widgets": bool }`. The `ai` flag is **off** by default (requires a provider key to be useful); the `widgets` flag is **on** by default (see [`features.py::DEFAULT_ON_FLAGS`](../backend/src/budget_trace_backend/features.py)). Each gate:
+  - `ai` — PDF / image / general AI parsing on `POST /transactions/import?parser=ai` (403 when off); auto-categorize-on-import via [`importers/categorizer.py`](../backend/src/budget_trace_backend/importers/categorizer.py); the Insights chat (`POST /chat/sessions/{id}/messages` returns 403 when off; historical reads stay open).
+  - `widgets` — the Widgets tab and every `/dashboards/*`, `/widget-metrics`, `/saved-insights/*` route (403 + `feature_disabled` when off). See [widgets.md](widgets.md).
 - `selected_model` — a model id from [`services/ai/registry.py`](../backend/src/budget_trace_backend/services/ai/registry.py). Drives every AI call (chat, parser, auto-categorizer). `null` falls back to the `SELECTED_MODEL` env var, then the registry's `DEFAULT_MODEL`. Validated server-side; `PATCH` rejects unknown ids with 422.
 - `theme` — `system` | `light` | `dark`. Drives `MaterialApp.themeMode` in `main.dart`.
+- `last_dashboard_id` — nullable FK-ish pointer to the dashboard the user was last viewing. `GET /dashboards/{id}` stamps it as a side effect so the Widgets tab can reopen on the same dashboard. Surfaced on `/me` for the frontend to seed initial navigation.
 
 Per-provider API keys are stored in a separate table — [`ai_provider_keys(user_id, provider, api_key)`](../backend/src/budget_trace_backend/db.py) — one row per provider (`anthropic`, `openai`, `google`, …). The model registry tells the runtime which provider's key to use for any given model. Each provider also accepts an env-var fallback: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (the names match each SDK's convention; LiteLLM uses them too).
 
@@ -23,7 +23,7 @@ PATCH /me  { partial fields }   → MeOut
 `MeOut` shape:
 ```json
 {
-  "features": { "ai": false },
+  "features": { "ai": false, "widgets": true },
   "theme": "system",
   "providers": [
     { "id": "anthropic", "display_name": "Anthropic", "env_var": "ANTHROPIC_API_KEY",
@@ -47,7 +47,8 @@ PATCH /me  { partial fields }   → MeOut
       "input_per_mtok": 0.3, "output_per_mtok": 2.5 }
     /* …registry continues */
   ],
-  "ai_spent_usd": 0.0
+  "ai_spent_usd": 0.0,
+  "last_dashboard_id": null
 }
 ```
 
@@ -59,7 +60,9 @@ To switch model, `PATCH /me` with `{"selected_model": "gpt-4o"}`. `null` resets 
 
 `ai_spent_usd` is the cumulative locally-estimated cost of every AI call this app has made. Computed at insert time as `tokens × selected model's per-MTok price` and snapshotted into [`ai_usage`](../backend/src/budget_trace_backend/db.py). **This is an estimate, not your provider bill** — for the authoritative figure, check each provider's dashboard.
 
-`PATCH` is partial: omit a field to leave it unchanged. `features` is a partial dict — sending `{"features": {"ai": true}}` flips just `ai` and leaves any future flags alone.
+`PATCH` is partial: omit a field to leave it unchanged. `features` is a partial dict — sending `{"features": {"ai": true}}` flips just `ai` and leaves `widgets` (and any future flags) alone.
+
+The `widgets` flag is `true` by default and can be flipped off via `PATCH /me {"features": {"widgets": false}}`. With it off, the tab disappears from the nav and every dashboard / saved-insight / metric-registry route 403s. There's no UI surface on the Account screen for it today — flip via API.
 
 ## UI: the Account screen
 

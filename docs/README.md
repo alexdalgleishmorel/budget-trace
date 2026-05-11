@@ -10,6 +10,7 @@ file answers one specific question — start with whichever matches your task.
 | [rest-api.md](rest-api.md) | The full Categories + Transactions + `/me` REST surface. |
 | [upload.md](upload.md) | CSV format, dedupe semantics, AI parser + auto-categorize. |
 | [insights-ai.md](insights-ai.md) | Touching the AI chat loop, MCP tool surface, prompt, response shape. |
+| [widgets.md](widgets.md) | Dashboards, widgets, the metric registry, saved insights, drag/resize. |
 | [account.md](account.md) | The `/me` settings surface — feature flags, API key, theme, auth-TODO. |
 | [backend.md](backend.md) | Working in `backend/` — running it, env vars, schema, seed, ports. |
 | [frontend.md](frontend.md) | Working in `frontend/` — service clients, chart slot, `--dart-define` knobs. |
@@ -18,13 +19,14 @@ file answers one specific question — start with whichever matches your task.
 
 ## What this app is
 
-Budget Trace is a category + AI-insights app for personal expenses. Three tabs:
+Budget Trace is a category + AI-insights app for personal expenses. Four tabs:
 
 1. **Categories** — editable tree of spending categories, each with a description that doubles as the AI's classification hint. Backed by `GET/POST/PATCH/DELETE /categories`.
 2. **Expenses** — list of transactions with category assignment, per-row edit, bulk-rename, hard delete, and a CSV upload dropzone with hash-based dedupe. Backed by `GET/POST/PATCH/DELETE /transactions` + `POST /transactions/import`.
-3. **Insights** — chat with an AI assistant about your spending. The AI can return text plus a `TimeseriesChart` pinned above the chat. The AI can also edit categories and transactions on request. The whole tab (and PDF/AI parsing in upload, plus auto-categorization on import) is gated behind a single `ai` flag, toggled in the Account screen — see [account.md](account.md).
+3. **Widgets** — Datadog-style dashboards. Each dashboard owns a time range and N widgets (timeseries, bar, pie, big-number, table, treemap). Widgets pull from a curated server-side metric registry or from frozen snapshots saved off the Insights chat. Drag + resize on desktop; full-width vertical list on mobile. Gated behind a `widgets` flag (defaults on). See [widgets.md](widgets.md).
+4. **Insights** — chat with an AI assistant about your spending. The AI returns text plus an optional **widget** of any type, picked to best fit the question. The AI can also edit categories and transactions on request. The whole tab (and PDF/AI parsing in upload, plus auto-categorization on import) is gated behind a single `ai` flag, toggled in the Account screen — see [account.md](account.md).
 
-Both `Categories` and `Expenses` talk to the same SQLite store the AI sees — there's no longer any in-memory mock-data divergence.
+Categories, Expenses, and Widgets all talk to the same SQLite store the AI sees — there's no in-memory mock-data divergence.
 
 ## Where things live
 

@@ -3,13 +3,13 @@
 ## The stack
 
 ```
-┌────────────────┐   POST /chat    ┌────────────────────────┐
-│  Flutter app   │ ───────────────▶│  Chat orchestrator     │
-│  (Insights tab)│ ◀───────────────│  (FastAPI)             │
-└────────────────┘   {text, chart?}└──┬─────────────────────┘
-                                      │ services/ai/client.chat()
-                                      │ (tools = MCP tools + present_to_user)
-                                      ▼
+┌────────────────┐   POST /chat     ┌────────────────────────┐
+│  Flutter app   │ ────────────────▶│  Chat orchestrator     │
+│  (Insights tab)│ ◀────────────────│  (FastAPI)             │
+└────────────────┘   {text,widget?} └──┬─────────────────────┘
+                                       │ services/ai/client.chat()
+                                       │ (tools = MCP tools + present_to_user)
+                                       ▼
                               ┌────────────────────┐
                               │ LiteLLM dispatcher │
                               └──┬─────────────────┘
@@ -47,8 +47,8 @@ When the user sends "what does my grocery spending look like the past 6 months?"
    1. Builds tool schemas from the Python signatures of `TOOL_FUNCTIONS` plus the inline `present_to_user` schema, in OpenAI/LiteLLM function-tool shape.
    2. Sends the conversation through [`services/ai/client.chat()`](../backend/src/budget_trace_backend/services/ai/client.py), which resolves the selected model's provider, looks up the API key, prefixes the model id for LiteLLM, and dispatches the call.
    3. Loops on `tool_calls` in the response: each call to `aggregate_spending`, `list_categories`, etc. is dispatched against the in-process function, the result is appended as a `tool` message, and the loop iterates.
-   4. When the model calls `present_to_user(text, chart?)`, those args become the HTTP response body. The chart (if present) is parsed into a `ChartSpec` model and serialised to JSON.
-5. Flutter receives `{text, chart?}`. The pending assistant message is replaced with the resolved one. If the message has a chart, `_latestChart` recomputes and the sticky chart panel above the chat re-renders.
+   4. When the model calls `present_to_user(text, widget?)`, those args become the HTTP response body. The widget (if present) is parsed into a `WidgetSpec` of any of the six widget types and serialised to JSON. A legacy `chart` argument is accepted for backward compatibility and auto-wrapped as a timeseries widget — see [insights-ai.md](insights-ai.md).
+5. Flutter receives `{text, widget?}`. The pending assistant message is replaced with the resolved one. If the message has a widget, it renders inline below the text via the same `WidgetCard` used on dashboards (see [widgets.md](widgets.md)).
 
 The conversation is fully stateless on the backend — every turn the full history is sent up. LiteLLM normalises request/response across providers so the orchestrator is provider-agnostic.
 

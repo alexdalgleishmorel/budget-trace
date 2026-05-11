@@ -34,8 +34,10 @@ class ChartSpec {
             .toList(),
       );
 
-  /// Convert into a renderable [TimeseriesChart].
-  Widget buildChart({double height = 240}) {
+  /// Convert into a renderable [TimeseriesChart]. Pass `height: null` to
+  /// have the chart flex to fill its parent (e.g. inside a dashboard grid
+  /// cell that already provides bounded height via Expanded/SizedBox).
+  Widget buildChart({double? height = 240}) {
     return TimeseriesChart(
       title: title,
       series: series.map((s) => s.toChartSeries()).toList(),
@@ -45,6 +47,14 @@ class ChartSpec {
       height: height,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'title': title,
+        if (yAxisLabel != null) 'y_axis_label': yAxisLabel,
+        if (xAxisLabel != null) 'x_axis_label': xAxisLabel,
+        if (xTickLabels != null) 'x_tick_labels': xTickLabels,
+        'series': series.map((s) => s.toJson()).toList(),
+      };
 }
 
 class ChartSeriesSpec {
@@ -76,4 +86,10 @@ class ChartSeriesSpec {
         points: points,
         style: style,
       );
+
+  Map<String, dynamic> toJson() => {
+        'label': label,
+        'style': style == LineStyle.dashed ? 'dashed' : 'solid',
+        'points': points.map((p) => {'x': p.x, 'y': p.y}).toList(),
+      };
 }

@@ -35,7 +35,7 @@ Health check: `curl http://localhost:8000/healthz`.
 | `GEMINI_API_KEY` | optional | Fallback when no Google key is stored. Required for any Gemini model when the stored key is empty. |
 | `SELECTED_MODEL` | `claude-sonnet-4-6` | Override the model used by the chat orchestrator, AI parser, and auto-categorizer. Anything in the registry is fair game (e.g. `gpt-4o`, `gemini-2.5-flash`). |
 | `BUDGET_TRACE_DB` | `<repo>/backend/data/budget_trace.db` | Override the SQLite path (used by tests). |
-| `BUDGET_TRACE_FEATURES` | unset | Comma-separated flag names (just `ai` today) that force a flag on for the running process. Wins over the DB. Useful for tests and CI. |
+| `BUDGET_TRACE_FEATURES` | unset | Comma-separated flag names (`ai`, `widgets`) that force a flag on for the running process. Wins over the DB. Useful for tests and CI. |
 
 ## Layout
 
@@ -59,11 +59,14 @@ backend/
         client.py                      # chat() — key resolution + LiteLLM dispatch
       ai_usage.py                      # per-call cost snapshot + cumulative spend reads
       categories.py                    # category mutation services (used by routes + MCP)
-      chat_sessions.py                 # session + message persistence
+      chat_sessions.py                 # session + message persistence (widget_json)
+      dashboards.py                    # dashboards/widgets/saved_insights services
       transactions.py                  # transaction mutation services
+      widget_metrics.py                # curated metric registry + time-range resolution
     routes/
       categories.py                    # CRUD HTTP handlers
       chat_sessions.py                 # /chat/sessions, /chat/help (gated by `ai`)
+      dashboards.py                    # /dashboards, /widget-metrics, /saved-insights (gated by `widgets`)
       transactions.py                  # CRUD + bulk_rename
       imports.py                       # POST /transactions/import (CSV + AI + auto-categorize)
       me.py                            # GET/PATCH /me — features, theme, model, provider keys
@@ -78,6 +81,7 @@ backend/
     fixtures/                          # CSV fixtures
     test_data_tools.py                 # read tools (aggregate, forecast, etc.)
     test_categories.py                 # CRUD + MCP write tools
+    test_dashboards.py                 # dashboards/widgets/saved_insights + metric registry
     test_transactions.py               # CRUD + MCP write tools
     test_importer.py                   # CSV parsing + dedupe + import route
     test_features.py                   # feature flags + AI gate
@@ -132,7 +136,7 @@ The same `TOOL_FUNCTIONS` dictionary backs both the stdio server and the in-proc
 ## Tests
 
 ```sh
-pytest                    # 9 tests, all hit a tmp DB seeded fresh per module
+pytest                    # all hit a tmp DB seeded fresh per module
 ```
 
 Tests use `BUDGET_TRACE_DB` to redirect the connection to a tmp path, then call the seed + tool functions directly. They monkeypatch `services.ai.client.chat` rather than hitting any provider's API.

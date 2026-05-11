@@ -2,9 +2,9 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-import '../models/chart_spec.dart';
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
+import '../models/dashboard.dart';
 
 /// Talks to the backend's `/chat/sessions` REST surface.
 ///
@@ -113,13 +113,13 @@ class ChatClient {
     final role = (json['role'] as String) == 'user'
         ? ChatRole.user
         : ChatRole.assistant;
-    final chart = (json['chart'] as Map<String, dynamic>?) != null
-        ? ChartSpec.fromJson(json['chart'] as Map<String, dynamic>)
+    final widget = (json['widget'] as Map<String, dynamic>?) != null
+        ? WidgetPayload.fromJson(json['widget'] as Map<String, dynamic>)
         : null;
     return ChatMessage(
       role: role,
       text: json['text'] as String? ?? '',
-      chart: chart,
+      widget: widget,
       errored: json['errored'] as bool? ?? false,
     );
   }

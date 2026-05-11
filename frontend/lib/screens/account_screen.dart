@@ -162,7 +162,8 @@ class _AccountScreenState extends State<AccountScreen> {
               _FeatureRow(
                 value: _me.features.ai,
                 busy: _saving,
-                onChanged: (v) => _patch(features: FeatureFlags(ai: v)),
+                onChanged: (v) => _patch(
+                    features: FeatureFlags(ai: v, widgets: _me.features.widgets)),
               ),
               if (_me.features.ai) ...[
                 _SubControl(

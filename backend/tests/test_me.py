@@ -33,7 +33,7 @@ def test_get_me_defaults(client: TestClient) -> None:
     resp = client.get("/me")
     assert resp.status_code == 200
     body = resp.json()
-    assert body["features"] == {"ai": False}
+    assert body["features"] == {"ai": False, "widgets": True}
     assert body["theme"] == "system"
     assert body["selected_model"] == "claude-sonnet-4-6"
     assert body["selected_model_provider"] == "anthropic"
@@ -134,8 +134,8 @@ def test_patch_me_unknown_model_returns_422(client: TestClient) -> None:
 def test_patch_me_features_round_trip(client: TestClient) -> None:
     resp = client.patch("/me", json={"features": {"ai": True}})
     assert resp.status_code == 200
-    assert resp.json()["features"] == {"ai": True}
-    assert client.get("/me").json()["features"] == {"ai": True}
+    assert resp.json()["features"] == {"ai": True, "widgets": True}
+    assert client.get("/me").json()["features"] == {"ai": True, "widgets": True}
 
 
 def test_patch_me_theme(client: TestClient) -> None:

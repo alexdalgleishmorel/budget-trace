@@ -1,4 +1,4 @@
-import 'chart_spec.dart';
+import 'dashboard.dart';
 
 enum ChatRole { user, assistant }
 
@@ -6,45 +6,47 @@ enum ChatRole { user, assistant }
 ///
 /// User messages are always concrete strings. Assistant messages start as
 /// [pending]=true while waiting for the backend response, then get replaced
-/// with the resolved text and (optionally) a [ChartSpec].
+/// with the resolved text and (optionally) a [WidgetPayload] — the AI
+/// picks the most intuitive widget type and the frontend renders it via
+/// the same `WidgetCard` used on dashboards.
 class ChatMessage {
   ChatMessage({
     required this.role,
     required this.text,
-    this.chart,
+    this.widget,
     this.pending = false,
     this.errored = false,
   });
 
   ChatMessage.user(this.text)
       : role = ChatRole.user,
-        chart = null,
+        widget = null,
         pending = false,
         errored = false;
 
   ChatMessage.assistantPending()
       : role = ChatRole.assistant,
         text = '',
-        chart = null,
+        widget = null,
         pending = true,
         errored = false;
 
   final ChatRole role;
   final String text;
-  final ChartSpec? chart;
+  final WidgetPayload? widget;
   final bool pending;
   final bool errored;
 
   ChatMessage copyWith({
     String? text,
-    ChartSpec? chart,
+    WidgetPayload? widget,
     bool? pending,
     bool? errored,
   }) =>
       ChatMessage(
         role: role,
         text: text ?? this.text,
-        chart: chart ?? this.chart,
+        widget: widget ?? this.widget,
         pending: pending ?? this.pending,
         errored: errored ?? this.errored,
       );

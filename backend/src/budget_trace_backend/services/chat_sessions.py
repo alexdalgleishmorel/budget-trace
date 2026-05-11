@@ -94,7 +94,7 @@ def get_messages(session_id: int) -> list[dict]:
     with connect() as conn:
         rows = conn.execute(
             """
-            SELECT id, sequence, role, text, chart_json, errored, created_at
+            SELECT id, sequence, role, text, chart_json, widget_json, errored, created_at
               FROM chat_messages
              WHERE session_id = ?
              ORDER BY sequence ASC
@@ -105,13 +105,23 @@ def get_messages(session_id: int) -> list[dict]:
 
 
 def _row_to_message(r: Any) -> dict:
-    chart = json.loads(r["chart_json"]) if r["chart_json"] else None
+    # Prefer `widget_json` (new). For pre-widget rows, synthesise a
+    # timeseries widget from the legacy `chart_json` so the frontend
+    # renders consistently.
+    widget = json.loads(r["widget_json"]) if r["widget_json"] else None
+    if widget is None and r["chart_json"]:
+        chart = json.loads(r["chart_json"])
+        widget = {
+            "type": "timeseries",
+            "title": chart.get("title", ""),
+            "data": {"chart": chart},
+        }
     return {
         "id": r["id"],
         "sequence": r["sequence"],
         "role": r["role"],
         "text": r["text"],
-        "chart": chart,
+        "widget": widget,
         "errored": bool(r["errored"]),
         "created_at": r["created_at"],
     }
@@ -122,7 +132,7 @@ def append_message(
     role: str,
     text: str,
     *,
-    chart: dict | None = None,
+    widget: dict | None = None,
     errored: bool = False,
 ) -> dict:
     """Append a turn. Updates the session's `updated_at`. If the session has
@@ -138,7 +148,7 @@ def append_message(
         cur = conn.execute(
             """
             INSERT INTO chat_messages
-                (session_id, sequence, role, text, chart_json, errored, created_at)
+                (session_id, sequence, role, text, widget_json, errored, created_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
@@ -146,7 +156,7 @@ def append_message(
                 seq,
                 role,
                 text,
-                json.dumps(chart) if chart else None,
+                json.dumps(widget) if widget else None,
                 1 if errored else 0,
                 now,
             ),
@@ -180,7 +190,7 @@ def append_message(
             "sequence": seq,
             "role": role,
             "text": text,
-            "chart": chart,
+            "widget": widget,
             "errored": errored,
             "created_at": now,
         }

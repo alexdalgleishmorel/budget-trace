@@ -13,11 +13,16 @@ erDiagram
     chat_sessions ||--o{ chat_messages : "session_id (ON DELETE CASCADE)"
     chat_sessions ||--o{ ai_usage      : "chat_session_id (ON DELETE SET NULL)"
     users ||--o{ ai_provider_keys : "user_id (ON DELETE CASCADE)"
+    users ||--o{ dashboards : "user_id (ON DELETE CASCADE)"
+    users ||--o{ saved_insights : "user_id (ON DELETE CASCADE)"
+    dashboards ||--o{ widgets : "dashboard_id (ON DELETE CASCADE)"
+    chat_messages ||--o{ saved_insights : "source_message_id (ON DELETE SET NULL)"
     users {
         INTEGER id PK
-        TEXT    features         JSON_blob_ai_bool
-        TEXT    theme            system_light_dark
-        TEXT    selected_model   model_id_NULL_falls_back_to_env_then_default
+        TEXT    features            JSON_blob_ai_widgets_bool
+        TEXT    theme               system_light_dark
+        TEXT    selected_model      model_id_NULL_falls_back_to_env_then_default
+        INTEGER last_dashboard_id   NULL_when_no_dashboard_viewed
     }
     ai_provider_keys {
         INTEGER user_id PK
@@ -48,11 +53,45 @@ erDiagram
     chat_messages {
         INTEGER id PK
         INTEGER session_id FK
-        INTEGER sequence "order within session"
-        TEXT    role     "'user' | 'assistant'"
+        INTEGER sequence    "order within session"
+        TEXT    role        "'user' | 'assistant'"
         TEXT    text
-        TEXT    chart_json "serialised ChartSpec; NULL for user turns"
+        TEXT    chart_json  "legacy ChartSpec; NULL on new rows"
+        TEXT    widget_json "serialised WidgetSpec; NULL for user turns"
         INTEGER errored
+        TEXT    created_at
+    }
+    dashboards {
+        INTEGER id PK
+        INTEGER user_id FK
+        TEXT    name
+        TEXT    time_range_preset   "last_3_months default; 'custom' uses start/end"
+        TEXT    time_range_start    "ISO date; only set when preset='custom'"
+        TEXT    time_range_end      "ISO date; only set when preset='custom'"
+        TEXT    created_at
+        TEXT    updated_at
+    }
+    widgets {
+        INTEGER id PK
+        INTEGER dashboard_id FK
+        TEXT    type             "timeseries|bar|pie|query_value|table|treemap"
+        TEXT    title
+        INTEGER layout_x
+        INTEGER layout_y
+        INTEGER layout_w
+        INTEGER layout_h
+        TEXT    data_source_json "metric | insight"
+        TEXT    config_json
+        TEXT    created_at
+        TEXT    updated_at
+    }
+    saved_insights {
+        INTEGER id PK
+        INTEGER user_id FK
+        TEXT    title
+        INTEGER source_message_id FK NULL_when_originating_message_deleted
+        TEXT    chart_json   "legacy ChartSpec; nullable"
+        TEXT    widget_json  "WidgetSpec; new rows write this"
         TEXT    created_at
     }
     ai_usage {
@@ -136,13 +175,67 @@ CREATE TABLE chat_messages (
     sequence    INTEGER NOT NULL,
     role        TEXT NOT NULL,                           -- 'user' | 'assistant'
     text        TEXT NOT NULL,
-    chart_json  TEXT,                                    -- serialised ChartSpec; NULL for user turns
+    chart_json  TEXT,                                    -- legacy ChartSpec; NULL on new rows
+    widget_json TEXT,                                    -- serialised WidgetSpec; NULL for user turns
     errored     INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL
 );
 
 CREATE INDEX idx_chat_msg_session     ON chat_messages(session_id, sequence);
 CREATE INDEX idx_chat_session_updated ON chat_sessions(updated_at DESC);
+
+-- Dashboards / widgets / saved insights. Full feature reference in widgets.md.
+CREATE TABLE dashboards (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id             INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name                TEXT NOT NULL,
+    -- Applies to every widget on this dashboard. `preset` is one of:
+    -- last_30_days, last_3_months (default), last_6_months, last_12_months,
+    -- month_to_date, year_to_date, all_time, custom. `start` / `end` only
+    -- meaningful when preset='custom'; otherwise computed at request time.
+    time_range_preset   TEXT NOT NULL DEFAULT 'last_3_months',
+    time_range_start    TEXT,
+    time_range_end      TEXT,
+    created_at          TEXT NOT NULL,
+    updated_at          TEXT NOT NULL
+);
+
+CREATE INDEX idx_dashboards_user ON dashboards(user_id, updated_at DESC);
+
+CREATE TABLE widgets (
+    id                INTEGER PRIMARY KEY AUTOINCREMENT,
+    dashboard_id      INTEGER NOT NULL REFERENCES dashboards(id) ON DELETE CASCADE,
+    type              TEXT NOT NULL,    -- 'timeseries'|'bar'|'pie'|'query_value'|'table'|'treemap'
+    title             TEXT NOT NULL,
+    layout_x          INTEGER NOT NULL,
+    layout_y          INTEGER NOT NULL,
+    layout_w          INTEGER NOT NULL,
+    layout_h          INTEGER NOT NULL,
+    -- `{kind:"metric", metric_id, params}` or `{kind:"insight", insight_id}`.
+    data_source_json  TEXT NOT NULL,
+    config_json       TEXT NOT NULL,    -- per-type display options; usually {}
+    created_at        TEXT NOT NULL,
+    updated_at        TEXT NOT NULL
+);
+
+CREATE INDEX idx_widgets_dashboard ON widgets(dashboard_id);
+
+-- Frozen widget snapshots lifted off Insights chat messages. `widget_json`
+-- carries the polymorphic `{type, title, data}` payload (any widget type).
+-- `chart_json` is the legacy timeseries-only column kept nullable for
+-- backward compatibility; reads prefer widget_json and synthesise one
+-- from chart_json when only the legacy column is set.
+CREATE TABLE saved_insights (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id            INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title              TEXT NOT NULL,
+    source_message_id  INTEGER REFERENCES chat_messages(id) ON DELETE SET NULL,
+    chart_json         TEXT,
+    widget_json        TEXT,
+    created_at         TEXT NOT NULL
+);
+
+CREATE INDEX idx_saved_insights_user ON saved_insights(user_id, created_at DESC);
 
 -- One row per AI API call. Powers the global "$X.XX spent" chip and
 -- per-chat estimates. `chat_session_id` is set only for chat calls so spend
@@ -167,7 +260,13 @@ CREATE INDEX idx_ai_usage_session    ON ai_usage(chat_session_id);
 CREATE INDEX idx_ai_usage_created_at ON ai_usage(created_at);
 ```
 
-`db.py::init_schema` is forward-compatible with older DBs: `_add_column_if_missing` adds `selected_model` if absent, and `_drop_column_if_present` strips the legacy `anthropic_api_key` / `anthropic_admin_api_key` / `anthropic_model` columns (SQLite ≥ 3.35) when migrating an older DB. Both helpers are idempotent.
+`db.py::init_schema` is forward-compatible with older DBs:
+
+- `_add_column_if_missing` adds `users.selected_model`, `users.last_dashboard_id`, `dashboards.time_range_preset`, `dashboards.time_range_start`, `dashboards.time_range_end`, `chat_messages.widget_json`, and `saved_insights.widget_json` when missing.
+- `_drop_column_if_present` strips the legacy `anthropic_api_key` / `anthropic_admin_api_key` / `anthropic_model` columns (SQLite ≥ 3.35) when migrating an older DB.
+- `_relax_saved_insights_chart_json` rebuilds the `saved_insights` table to drop the legacy `NOT NULL` constraint on `chart_json` — required so that non-timeseries widget payloads (pie, table, treemap, …) can be persisted via `widget_json` only. SQLite has no `ALTER COLUMN`, so the helper does the standard "new table, copy data, drop old, rename" dance.
+
+All helpers are idempotent.
 
 ## Path strings
 

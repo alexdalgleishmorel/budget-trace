@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .db import bootstrap_db
 from .routes import categories as categories_routes
 from .routes import chat_sessions as chat_sessions_routes
+from .routes import dashboards as dashboards_routes
 from .routes import imports as imports_routes
 from .routes import me as me_routes
 from .routes import transactions as transactions_routes
@@ -48,6 +49,7 @@ app.include_router(transactions_routes.router)
 app.include_router(imports_routes.router)
 app.include_router(me_routes.router)
 app.include_router(chat_sessions_routes.router)
+app.include_router(dashboards_routes.router)
 
 
 @app.get("/healthz")

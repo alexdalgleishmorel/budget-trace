@@ -37,6 +37,38 @@ class ChartSpec(BaseModel):
     series: list[ChartSeriesSpec]
 
 
+class WidgetSpec(BaseModel):
+    """Generic, polymorphic widget payload — used by the Insights AI to
+    return any widget type (not just timeseries) and by saved insights to
+    persist a frozen rendering.
+
+    `data` shape is keyed by `type` and mirrors what
+    `services/widget_metrics.py::resolve_metric_data` returns for each
+    widget type, so the same frontend renderer handles AI output and
+    dashboard data uniformly.
+    """
+
+    type: Literal["timeseries", "bar", "pie", "query_value", "table", "treemap"]
+    title: str
+    data: dict
+
+
+def widget_from_chart(chart: dict | ChartSpec | None) -> WidgetSpec | None:
+    """Wrap a legacy ChartSpec as a timeseries WidgetSpec.
+
+    Used both at read-time (legacy stored chart_json gets surfaced as a
+    widget) and when the AI returns the old `chart` argument for
+    backward compatibility.
+    """
+    if chart is None:
+        return None
+    spec = chart if isinstance(chart, ChartSpec) else ChartSpec(**chart)
+    return WidgetSpec(
+        type="timeseries", title=spec.title,
+        data={"chart": spec.model_dump()},
+    )
+
+
 class ChatTurn(BaseModel):
     role: Literal["user", "assistant"]
     content: str
@@ -49,7 +81,7 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     text: str
-    chart: ChartSpec | None = None
+    widget: WidgetSpec | None = None
     cost_usd: float = 0.0
     session_spent_usd: float = 0.0
 
@@ -68,7 +100,7 @@ class ChatMessageOut(BaseModel):
     sequence: int
     role: Literal["user", "assistant"]
     text: str
-    chart: ChartSpec | None = None
+    widget: WidgetSpec | None = None
     errored: bool = False
     created_at: str
 

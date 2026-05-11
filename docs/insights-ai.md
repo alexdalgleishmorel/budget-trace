@@ -38,7 +38,7 @@ Write tools are always registered when chat is reachable — gating happens upst
 
 | Tool | What it does |
 |------|--------------|
-| `present_to_user` | **Inline only.** The structured-output channel. Args: `text: str` (required), `chart: ChartSpec?` (optional). |
+| `present_to_user` | **Inline only.** The structured-output channel. Args: `text: str` (required), `widget: WidgetSpec?` (preferred), `chart: ChartSpec?` (deprecated, auto-wrapped to a timeseries widget server-side). |
 
 The MCP tools (read + write) are portable — point any MCP client at the same server and they keep working. `present_to_user` is *this app's* output schema and lives in the orchestrator. Splitting them keeps the read API clean.
 
@@ -48,7 +48,11 @@ Categories use **paths** (`"Living / Grocery"`) as the AI-facing identifier; tra
 
 System prompt ([chat.py](../backend/src/budget_trace_backend/chat.py)) tells the model:
 
-> Your final action MUST be exactly one call to `present_to_user`. Do NOT emit text outside of that tool call. Use a `chart` argument only when a time-series visualisation would meaningfully strengthen your answer.
+> Your final action MUST be exactly one call to `present_to_user`. Do NOT emit text outside of that tool call.
+>
+> Strongly prefer answering with a `widget` whenever the answer carries data the user can see. A widget paired with one or two sentences of context is almost always better than text alone. Only omit the widget for clarifications, write-tool confirmations, or simple yes/no answers.
+
+…followed by a per-type guide pairing each widget type with the situations it suits best and the exact `data` shape it requires.
 
 The orchestrator loop is dumb: dispatch tool calls, append `tool` messages, send back, repeat. The **only exit conditions** are:
 1. The model calls `present_to_user` → those args become the HTTP response.
@@ -57,9 +61,36 @@ The orchestrator loop is dumb: dispatch tool calls, append `tool` messages, send
 
 This is stricter than letting the model reply with freeform text. It guarantees the response is structured and avoids the "AI says it ran a query but actually hallucinated the numbers" failure mode.
 
-## ChartSpec shape
+## WidgetSpec shape
+
+`WidgetSpec` is the polymorphic output payload the AI fills in. The frontend renders it through the same `WidgetCard` used on dashboards — same renderers, same data shapes, same code path.
 
 Backend ([backend/src/budget_trace_backend/models.py](../backend/src/budget_trace_backend/models.py)):
+
+```python
+class WidgetSpec(BaseModel):
+    type: Literal["timeseries", "bar", "pie",
+                  "query_value", "table", "treemap"]
+    title: str
+    data: dict   # per-type shape — see widgets.md
+```
+
+The per-type `data` shapes mirror exactly what the dashboard's widget-data endpoint returns for the curated metric registry. That symmetry is intentional — see [widgets.md](widgets.md#widget-types) for the full reference.
+
+**Quick reference of when the AI should reach for each type:**
+
+| Type | When to use |
+|------|-------------|
+| `timeseries` | Trends, seasonality, period-over-period, forecasts. |
+| `bar` | Side-by-side comparison of buckets (categories, weeks, top merchants). |
+| `pie` | A total split into 3–7 named groups where proportion matters. |
+| `query_value` | A single headline number ("how much did I spend in April?"), optionally with a delta chip. |
+| `table` | Rows of structured detail (transactions, multi-column merchant listings). |
+| `treemap` | Many groups by proportion — when a pie would crowd. |
+
+### Legacy chart support
+
+For backward compatibility with stored messages and any model that still emits the old shape, `present_to_user` also accepts a `chart` arg with the original `ChartSpec` shape:
 
 ```python
 class ChartSpec(BaseModel):
@@ -75,9 +106,9 @@ class ChartSeriesSpec(BaseModel):
     points: list[ChartPoint]        # x and y both float
 ```
 
-Frontend ([frontend/lib/models/chart_spec.dart](../frontend/lib/models/chart_spec.dart)) mirrors this in camelCase and includes `buildChart()` to render it as a `TimeseriesChart`.
+If supplied, [`widget_from_chart`](../backend/src/budget_trace_backend/models.py) auto-wraps it as `{type: "timeseries", title, data: {chart: <ChartSpec>}}`. `widget` is checked first and wins when both are present. Legacy `chart_json` rows in `chat_messages` are similarly upgraded on read.
 
-**Conventions the AI must follow** (encoded in the system prompt):
+**Conventions the AI must still follow** for any timeseries widget (encoded in the system prompt):
 
 - `solid` for observed/historical data, `dashed` for forecasts.
 - `x_tick_labels` should be human-readable labels (e.g. `["Feb '26", "Mar '26", "Apr '26"]`) when x represents time periods.
@@ -87,9 +118,9 @@ Frontend ([frontend/lib/models/chart_spec.dart](../frontend/lib/models/chart_spe
 
 The orchestrator may run several tool-call rounds before getting to `present_to_user`. Streaming each round to the client is doable but adds complexity (multiple `ChatMessage` updates per turn, partial chart rendering). The MVP keeps it synchronous and shows "Thinking…" until the resolved message arrives. Add streaming when "Thinking…" feels too slow in practice.
 
-## Where the chart shows
+## Where the widget shows
 
-`InsightsScreen._latestChart` walks the message list backwards and returns the first chart it finds. That chart is rendered in the sticky `_ChartPanel` slot between the header and the transcript. When the user asks a new question and the next response has its own chart, the slot updates. Old charts scroll out of the chat but their text stays in the transcript.
+Each assistant `ChatMessage` with a non-null `widget` renders the widget inline below the text, in a fixed 260 dp tile that uses the same `WidgetCard` shell as the dashboard grid (with `previewData` short-circuiting the fetch). A "Save as widget" button beneath the tile lifts the rendered widget into a `saved_insight` row, which can then be attached to any dashboard. See [widgets.md](widgets.md#saved-insights--frozen-widget-snapshots) for the saved-insight contract — refreshes never re-invoke the AI; they re-read the stored bytes.
 
 ## Cost tracking
 
