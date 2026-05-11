@@ -2,21 +2,8 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import '../models/budget_category.dart';
 import '../theme/app_theme.dart';
+import '../utils/leaf_categories.dart';
 import 'cat_icon.dart';
-
-void _collectLeaves(
-  BudgetCategory node,
-  String parentName,
-  List<({String name, String group})> out,
-) {
-  if (node.children.isEmpty) {
-    out.add((name: node.name, group: parentName));
-  } else {
-    for (final child in node.children) {
-      _collectLeaves(child, node.name, out);
-    }
-  }
-}
 
 class CategoryChip extends StatefulWidget {
   const CategoryChip({
@@ -44,13 +31,7 @@ class _CategoryChipState extends State<CategoryChip> {
   final _link = LayerLink();
   OverlayEntry? _entry;
 
-  List<({String name, String group})> get _allCats {
-    final result = <({String name, String group})>[];
-    for (final g in widget.root.children.where((c) => !c.isUnknown)) {
-      _collectLeaves(g, g.name, result);
-    }
-    return result;
-  }
+  List<AssignableCategory> get _allCats => assignableCategoriesOf(widget.root);
 
   void _close() {
     _entry?.remove();
@@ -143,7 +124,7 @@ class _PickerOverlay extends StatefulWidget {
 
   final LayerLink link;
   final BudgetTheme bt;
-  final List<({String name, String group})> allCats;
+  final List<AssignableCategory> allCats;
   final ValueChanged<String> onSelect;
   final VoidCallback onDismiss;
   final VoidCallback onOpenCategories;
@@ -222,7 +203,7 @@ class _PickerOverlayState extends State<_PickerOverlay> {
                                   : filtered.map((c) => _PickerRow(
                                         cat: c,
                                         bt: widget.bt,
-                                        onTap: () => widget.onSelect(c.name),
+                                        onTap: () => widget.onSelect(c.path),
                                       )).toList(),
                             ),
                           ),
@@ -310,7 +291,7 @@ class _EmptyState extends StatelessWidget {
 
 class _PickerRow extends StatefulWidget {
   const _PickerRow({required this.cat, required this.bt, required this.onTap});
-  final ({String name, String group}) cat;
+  final AssignableCategory cat;
   final BudgetTheme bt;
   final VoidCallback onTap;
 

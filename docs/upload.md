@@ -40,9 +40,9 @@ If `ai` is on but no API key is configured for the selected model's provider (ne
 
 ## Auto-categorize on import (gated by `ai`)
 
-When `ai` is on, every successful import (CSV or AI) runs the freshly-inserted rows through `importers/categorizer.py` before returning. One AI call per import: the model receives the rows + the leaf category list (with descriptions) and returns an `assign_categories` tool call mapping `transaction_id → category_path`. Anything the model isn't confident about it omits, leaving the row at `category_id = NULL` for the user to handle.
+When `ai` is on, every successful import (CSV or AI) runs the freshly-inserted rows through `importers/categorizer.py` before returning. One AI call per import: the model receives the rows + the full category list (every non-Unknown category, leaf and parent, with descriptions) and returns an `assign_categories` tool call mapping `transaction_id → category_path`. Parent categories are valid assignment targets — the AI may pick one when no child is a clearer fit. Anything the model isn't confident about it omits, leaving the row at `category_id = NULL` for the user to handle.
 
-It's best-effort. Every failure mode (missing key, network error, no leaves defined, unparseable model output) shows up as a structured `error` in the response — the import itself is always 200.
+It's best-effort. Every failure mode (missing key, network error, no categories defined, unparseable model output) shows up as a structured `error` in the response — the import itself is always 200.
 
 ## Response shape
 

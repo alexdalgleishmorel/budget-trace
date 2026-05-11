@@ -116,7 +116,7 @@ class _TransactionEditModalState extends State<TransactionEditModal> {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final leaves = leafCategoriesOf(widget.root);
+    final categories = assignableCategoriesOf(widget.root);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -182,7 +182,7 @@ class _TransactionEditModalState extends State<TransactionEditModal> {
                       _Field(
                         label: 'Category',
                         child: _CategoryDropdown(
-                          leaves: leaves,
+                          categories: categories,
                           current: _category,
                           onChange: (c) => setState(() => _category = c),
                           bt: bt,
@@ -377,20 +377,20 @@ class _Field extends StatelessWidget {
 
 class _CategoryDropdown extends StatelessWidget {
   const _CategoryDropdown({
-    required this.leaves,
+    required this.categories,
     required this.current,
     required this.onChange,
     required this.bt,
   });
 
-  final List<({String name, String group})> leaves;
+  final List<AssignableCategory> categories;
   final String? current;
   final ValueChanged<String?> onChange;
   final BudgetTheme bt;
 
   @override
   Widget build(BuildContext context) {
-    final values = <String?>[null, ...leaves.map((l) => l.name)];
+    final values = <String?>[null, ...categories.map((c) => c.path)];
     // Make sure the current value (if non-null) appears in the list — defensive
     // in case a transaction was tagged with a category that no longer exists.
     if (current != null && !values.contains(current)) {
@@ -399,9 +399,7 @@ class _CategoryDropdown extends StatelessWidget {
 
     String labelFor(String? v) {
       if (v == null) return 'Unassigned';
-      final match = leaves.where((l) => l.name == v).toList();
-      if (match.isEmpty) return v;
-      return '${match.first.group} / ${match.first.name}';
+      return v;
     }
 
     return Container(

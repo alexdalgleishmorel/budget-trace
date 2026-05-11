@@ -80,11 +80,13 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
 
   double get _total => widget.transactions.fold(0, (s, t) => s + t.amount);
 
-  /// Chip dropdown picked a category name. Resolve to id, PATCH, refetch.
-  /// Fire-and-forget from CategoryChip's perspective (its onChange is void).
-  void _onAssign(Transaction t, String categoryName) {
+  /// Chip dropdown picked a category. The picker returns the full path so
+  /// parent and leaf categories with shared names disambiguate cleanly.
+  /// Resolve to id, PATCH, refetch. Fire-and-forget from CategoryChip's
+  /// perspective (its onChange is void).
+  void _onAssign(Transaction t, String categoryPath) {
     () async {
-      final id = categoryIdForName(widget.cycle.root, categoryName);
+      final id = categoryIdForPath(widget.cycle.root, categoryPath);
       if (id == null) return;
       await widget.client.update(
         int.parse(t.id),
@@ -109,7 +111,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
         if (wantsCategoryChange) {
           final id = category == null
               ? null
-              : categoryIdForName(widget.cycle.root, category);
+              : categoryIdForPath(widget.cycle.root, category);
           await widget.client.update(
             int.parse(t.id),
             categoryId: id,
@@ -1098,7 +1100,7 @@ class _CategoryDropdownState extends State<_CategoryDropdown> {
       builder: (_) => _FilterOverlay(
         link: _link,
         bt: widget.bt,
-        allCats: leafCategoriesOf(widget.root),
+        allCats: assignableCategoriesOf(widget.root),
         current: widget.value,
         onSelect: (v) { widget.onChanged(v); _close(); },
         onDismiss: _close,
@@ -1177,7 +1179,7 @@ class _FilterOverlay extends StatefulWidget {
 
   final LayerLink link;
   final BudgetTheme bt;
-  final List<({String name, String group})> allCats;
+  final List<AssignableCategory> allCats;
   final String? current;
   final ValueChanged<String?> onSelect;
   final VoidCallback onDismiss;
@@ -1258,9 +1260,9 @@ class _FilterOverlayState extends State<_FilterOverlay> {
                                   ...filtered.map((c) => _FilterRow(
                                         label: c.name,
                                         sublabel: c.group != c.name ? c.group : null,
-                                        active: widget.current == c.name,
+                                        active: widget.current == c.path,
                                         bt: widget.bt,
-                                        onTap: () => widget.onSelect(c.name),
+                                        onTap: () => widget.onSelect(c.path),
                                       )),
                               ],
                             ),

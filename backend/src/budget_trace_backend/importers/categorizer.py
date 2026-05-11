@@ -10,7 +10,8 @@ flag is on. Two-stage pipeline:
      needed. This is how manual user fixes silently train future imports.
 
   2. **AI fallback** — send only the truly-unknown merchants to the model
-     with the leaf category list. The model emits an `assign_categories`
+     with the available category list (every non-Unknown category, leaf
+     or parent). The model emits an `assign_categories`
      tool call mapping `transaction_id → category_path`. Output is deduped
      by merchant (first assignment wins on per-batch conflicts) and applied
      via the same per-merchant bulk UPDATE as stage 1.
@@ -26,8 +27,10 @@ Defensive on the SQL side:
 - Pre-applied + AI-assigned categories both use a per-merchant bulk
   UPDATE that skips rows already on the target category — keeps row
   counts honest.
-- Drops AI assignments whose path doesn't resolve, isn't a leaf, or points
-  at the symbolic Unknown row. The chat AI is the place to retry/fix those.
+- Drops AI assignments whose path doesn't resolve or points at the symbolic
+  Unknown row. Parent (non-leaf) categories are accepted — the user can
+  assign to a parent directly when no child is a better fit. The chat AI
+  is the place to retry/fix anything that gets dropped.
 """
 
 from __future__ import annotations
@@ -62,7 +65,7 @@ ASSIGN_TOOL = {
                             "transaction_id": {"type": "integer"},
                             "category_path": {
                                 "type": "string",
-                                "description": "Must be one of the leaf paths supplied in the prompt.",
+                                "description": "Must be one of the category paths supplied in the prompt.",
                             },
                         },
                         "required": ["transaction_id", "category_path"],
@@ -76,12 +79,14 @@ ASSIGN_TOOL = {
 
 
 SYSTEM_PROMPT = (
-    "You categorize personal banking transactions into a fixed list of leaf "
+    "You categorize personal banking transactions into a fixed list of "
     "category paths. Call `assign_categories` exactly once with everything "
     "you can confidently place. Match merchants and amounts against the "
-    "category descriptions provided. Use only the exact leaf paths from the "
-    "supplied list — never invent new ones. Omit any transaction where no "
-    "leaf is a clear fit; the user will categorize it manually."
+    "category descriptions provided. Use only the exact paths from the "
+    "supplied list — never invent new ones. Parent categories (paths whose "
+    "name has children beneath it) are valid targets: pick one when no child "
+    "category is a clearly better fit. Omit any transaction where nothing "
+    "in the list is a clear fit; the user will categorize it manually."
 )
 
 
@@ -99,18 +104,21 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
         }
 
     with connect() as conn:
-        leaves = [
+        # Every non-Unknown category in the tree is a valid assignment
+        # target — including parents that have children. The user can
+        # assign to a parent directly when no child is a clearer fit.
+        targets = [
             n for n in fetch_category_tree(conn)
-            if n["is_leaf"] and not n["is_unknown"]
+            if not n["is_unknown"]
         ]
-        if not leaves:
+        if not targets:
             return {
                 "attempted": len(transaction_ids),
                 "categorized": 0,
                 "pre_applied": 0,
                 "skipped_no_match": len(transaction_ids),
                 "ai_usage": None,
-                "error": "no_leaf_categories",
+                "error": "no_categories",
             }
 
         # Look up the input rows so we have their merchants + amounts.
@@ -153,10 +161,12 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
                 for r in unknown_rows
             ]
             user_text = (
-                "Available leaf categories (use these exact paths):\n\n"
+                "Available categories (use these exact paths). Each entry is "
+                "a full path; parent categories that also contain children "
+                "are still valid targets when no child is a clearer fit:\n\n"
                 + "\n".join(
                     f"- `{n['path']}` — {n['description'] or '(no description)'}"
-                    for n in leaves
+                    for n in targets
                 )
                 + "\n\nTransactions to categorize:\n\n"
                 + json.dumps(txn_payload, indent=2)
@@ -209,7 +219,7 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
             # Merge the model's assignments into merchant_to_cat_id.
             # Dedupe by merchant — first assignment per merchant wins (same
             # invariant as the manual cascade).
-            valid_paths = {n["path"] for n in leaves}
+            valid_paths = {n["path"] for n in targets}
             requested_ids = {r["id"] for r in unknown_rows}
             for tc in resp.get("tool_calls") or []:
                 if tc.get("name") != "assign_categories":

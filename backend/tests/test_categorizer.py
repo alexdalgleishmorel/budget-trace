@@ -101,10 +101,10 @@ def test_categorizer_drops_invalid_paths(seeded_db: Path, monkeypatch) -> None:
         categorizer,
         "ai_chat",
         _fake_chat_returning([
-            # Hallucinated path — not in the leaf list.
+            # Hallucinated path — not in the category list at all.
             {"transaction_id": ids[0], "category_path": "Made Up / Imaginary"},
-            # Non-leaf path — "Living" is a parent, not a leaf.
-            {"transaction_id": ids[1], "category_path": "Living"},
+            # Another invalid path — different shape, still not real.
+            {"transaction_id": ids[1], "category_path": "Also Fake"},
         ]),
     )
 
@@ -113,6 +113,35 @@ def test_categorizer_drops_invalid_paths(seeded_db: Path, monkeypatch) -> None:
     assert result["categorized"] == 0
     assert result["skipped_no_match"] == 2
     assert "error" not in result
+
+
+def test_categorizer_accepts_parent_category_paths(seeded_db: Path, monkeypatch) -> None:
+    """Non-leaf (parent) paths are valid assignment targets. The AI may pick
+    a parent when no child is a clearer fit."""
+    ids = _insert_uncategorised(seeded_db)
+
+    monkeypatch.setattr(
+        categorizer,
+        "ai_chat",
+        _fake_chat_returning([
+            # "Living" is a parent in the seeded tree — accepted, not dropped.
+            {"transaction_id": ids[0], "category_path": "Living"},
+            {"transaction_id": ids[1], "category_path": "Living / Gas"},
+        ]),
+    )
+
+    result = categorizer.categorize_rows(ids)
+
+    assert result["categorized"] == 2
+    assert result["skipped_no_match"] == 0
+    assert "error" not in result
+
+    with db_module.connect(seeded_db) as conn:
+        rows = {r["id"]: r["category_id"] for r in conn.execute(
+            "SELECT id, category_id FROM transactions WHERE id IN (?, ?)", ids,
+        )}
+    # Both rows landed on a real category (parent or child).
+    assert all(cid is not None for cid in rows.values())
 
 
 def test_categorizer_empty_ids_skips_ai_call(seeded_db: Path, monkeypatch) -> None:
