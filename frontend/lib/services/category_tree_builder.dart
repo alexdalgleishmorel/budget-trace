@@ -17,6 +17,7 @@ BudgetCategory buildTree(List<CategoryDto> dtos) {
       name: d.name,
       description: d.description,
       isUnknown: d.isUnknown,
+      color: d.color,
     );
   }
 

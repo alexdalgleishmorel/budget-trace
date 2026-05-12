@@ -22,22 +22,26 @@ class CategoryOut(BaseModel):
     path: str
     is_leaf: bool
     is_unknown: bool
+    color: str
 
 
 class CategoryCreate(BaseModel):
     name: str
     description: str | None = None
     parent_id: int | None = None
+    color: str | None = None
 
 
 class CategoryUpdate(BaseModel):
     """All fields optional. None for `description` actually clears the field —
     the route distinguishes "field omitted" from "field explicitly null" via
-    pydantic's `model_fields_set`.
+    pydantic's `model_fields_set`. `color` is non-nullable, so omitting it
+    means "no change"; sending a value updates the tile color.
     """
     name: str | None = None
     description: str | None = None
     parent_id: int | None = None
+    color: str | None = None
 
 
 class CategoryDeleted(BaseModel):
@@ -66,7 +70,7 @@ def list_all() -> list[CategoryOut]:
 def create(payload: CategoryCreate) -> CategoryOut:
     try:
         return CategoryOut(**svc.create_category(
-            payload.name, payload.description, payload.parent_id,
+            payload.name, payload.description, payload.parent_id, payload.color,
         ))
     except svc.ServiceError as e:
         raise _err(e)
@@ -110,6 +114,7 @@ def update(category_id: int, payload: CategoryUpdate) -> CategoryOut:
             name=payload.name,
             description=payload.description,
             parent_id=payload.parent_id,
+            color=payload.color,
             description_explicit="description" in explicit,
             parent_explicit="parent_id" in explicit,
         ))

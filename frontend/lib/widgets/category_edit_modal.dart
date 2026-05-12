@@ -13,6 +13,7 @@ class CategoryEditModal extends StatefulWidget {
     required this.initialName,
     required this.initialDescription,
     required this.initialParent,
+    required this.initialColor,
     required this.target,
     required this.onSubmit,
     required this.onDelete,
@@ -23,7 +24,7 @@ class CategoryEditModal extends StatefulWidget {
     required BuildContext context,
     required BudgetCategory root,
     required BudgetCategory parent,
-    required Future<void> Function(BudgetCategory newParent, String name, String? description) onSubmit,
+    required Future<void> Function(BudgetCategory newParent, String name, String? description, String color) onSubmit,
   }) {
     return showDialog(
       context: context,
@@ -34,6 +35,7 @@ class CategoryEditModal extends StatefulWidget {
         initialName: '',
         initialDescription: '',
         initialParent: parent,
+        initialColor: CategoryPalette.defaultKey,
         target: null,
         onSubmit: onSubmit,
         onDelete: null,
@@ -47,7 +49,7 @@ class CategoryEditModal extends StatefulWidget {
     required BudgetCategory root,
     required BudgetCategory target,
     required BudgetCategory currentParent,
-    required Future<void> Function(BudgetCategory newParent, String name, String? description) onSubmit,
+    required Future<void> Function(BudgetCategory newParent, String name, String? description, String color) onSubmit,
     required Future<void> Function() onDelete,
   }) {
     return showDialog(
@@ -59,6 +61,7 @@ class CategoryEditModal extends StatefulWidget {
         initialName: target.name,
         initialDescription: target.description ?? '',
         initialParent: currentParent,
+        initialColor: target.color,
         target: target,
         onSubmit: onSubmit,
         onDelete: onDelete,
@@ -71,8 +74,9 @@ class CategoryEditModal extends StatefulWidget {
   final String initialName;
   final String initialDescription;
   final BudgetCategory initialParent;
+  final String initialColor;
   final BudgetCategory? target;
-  final Future<void> Function(BudgetCategory newParent, String name, String? description) onSubmit;
+  final Future<void> Function(BudgetCategory newParent, String name, String? description, String color) onSubmit;
   final Future<void> Function()? onDelete;
 
   @override
@@ -86,6 +90,7 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
   late TextEditingController _name;
   late TextEditingController _description;
   late BudgetCategory _parent;
+  late String _color;
   bool _busy = false;
   String? _error;
 
@@ -97,6 +102,7 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
     _description = TextEditingController(text: widget.initialDescription)
       ..addListener(_onTextChanged);
     _parent = widget.initialParent;
+    _color = widget.initialColor;
   }
 
   void _onTextChanged() => setState(() {});
@@ -118,7 +124,8 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
     final nameChanged = name != widget.initialName.trim();
     final descChanged = desc != widget.initialDescription.trim();
     final parentChanged = _parent != widget.initialParent;
-    return nameChanged || descChanged || parentChanged;
+    final colorChanged = _color != widget.initialColor;
+    return nameChanged || descChanged || parentChanged || colorChanged;
   }
 
   /// All categories that could legally be a parent — root + every non-leaf,
@@ -180,7 +187,7 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
       _error = null;
     });
     try {
-      await widget.onSubmit(_parent, n, d.isEmpty ? null : d);
+      await widget.onSubmit(_parent, n, d.isEmpty ? null : d, _color);
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       if (mounted) {
@@ -292,6 +299,14 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
                             bt: bt,
                             hint: 'What kinds of expenses belong here?',
                           ),
+                        ),
+                      ),
+                      _Field(
+                        label: 'Color',
+                        child: _ColorPicker(
+                          selected: _color,
+                          onChange: (k) => setState(() => _color = k),
+                          bt: bt,
                         ),
                       ),
                       _Field(
@@ -471,6 +486,69 @@ class _Field extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _ColorPicker extends StatelessWidget {
+  const _ColorPicker({
+    required this.selected,
+    required this.onChange,
+    required this.bt,
+  });
+
+  final String selected;
+  final ValueChanged<String> onChange;
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final key in CategoryPalette.keys)
+          _Swatch(
+            colorKey: key,
+            selected: key == selected,
+            onTap: () => onChange(key),
+            bt: bt,
+          ),
+      ],
+    );
+  }
+}
+
+class _Swatch extends StatelessWidget {
+  const _Swatch({
+    required this.colorKey,
+    required this.selected,
+    required this.onTap,
+    required this.bt,
+  });
+
+  final String colorKey;
+  final bool selected;
+  final VoidCallback onTap;
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    final bg = context.categoryBg(colorKey);
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(
+          color: bg,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected ? bt.ink : bt.ruleStrong,
+            width: selected ? 2 : 1,
+          ),
+        ),
       ),
     );
   }

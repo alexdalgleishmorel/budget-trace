@@ -11,6 +11,11 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+from ..category_palette import (
+    CATEGORY_PALETTE_KEYS,
+    DEFAULT_CATEGORY_COLOR,
+    is_valid_color,
+)
 from ..db import (
     CATEGORY_PATHS_CTE,
     category_id_for_path,
@@ -52,7 +57,7 @@ def get_category(conn: sqlite3.Connection, category_id: int) -> dict | None:
         f"""
         {CATEGORY_PATHS_CTE}
         SELECT cp.id, cp.name, cp.description, cp.parent_id, cp.is_unknown,
-               cp.path,
+               cp.color, cp.path,
                (SELECT COUNT(*) FROM categories c WHERE c.parent_id = cp.id) AS child_count
           FROM category_paths cp
          WHERE cp.id = ?
@@ -79,7 +84,7 @@ def list_categories_with_ids(conn: sqlite3.Connection) -> list[dict]:
         f"""
         {CATEGORY_PATHS_CTE}
         SELECT cp.id, cp.name, cp.description, cp.parent_id, cp.is_unknown,
-               cp.path,
+               cp.color, cp.path,
                (SELECT COUNT(*) FROM categories c WHERE c.parent_id = cp.id) AS child_count
           FROM category_paths cp
          ORDER BY cp.path
@@ -95,12 +100,22 @@ def create_category(
     name: str,
     description: str | None,
     parent_id: int | None = None,
+    color: str | None = None,
 ) -> dict:
     """Create a new category. `parent_id=None` makes it a top-level group
-    (a child of the root "Budget" node)."""
+    (a child of the root "Budget" node). `color` must be a key from
+    `CATEGORY_PALETTE_KEYS`; defaults to `DEFAULT_CATEGORY_COLOR` when omitted.
+    """
     name = (name or "").strip()
     if not name:
         raise ServiceError("name is required", code="validation_error")
+
+    chosen_color = color or DEFAULT_CATEGORY_COLOR
+    if not is_valid_color(chosen_color):
+        raise ServiceError(
+            f"unknown color {chosen_color!r}; must be one of {sorted(CATEGORY_PALETTE_KEYS)}",
+            code="validation_error",
+        )
 
     with connect() as conn:
         if parent_id is None:
@@ -114,9 +129,9 @@ def create_category(
                 raise NotFound(f"parent_id {parent_id} does not exist")
 
         cur = conn.execute(
-            "INSERT INTO categories (name, description, parent_id, is_unknown) "
-            "VALUES (?, ?, ?, 0)",
-            (name, description, parent_id),
+            "INSERT INTO categories (name, description, parent_id, is_unknown, color) "
+            "VALUES (?, ?, ?, 0, ?)",
+            (name, description, parent_id, chosen_color),
         )
         new_id = cur.lastrowid
         return get_category(conn, new_id)  # type: ignore[return-value]
@@ -128,13 +143,14 @@ def update_category(
     name: str | None = None,
     description: str | None = None,
     parent_id: int | None = None,
+    color: str | None = None,
     description_explicit: bool = False,
     parent_explicit: bool = False,
 ) -> dict:
     """Partial update. Pass `description_explicit=True` to allow setting
     description to NULL; otherwise None means "no change". Same for
-    parent_explicit. (Pydantic with .model_dump(exclude_unset=True) gives the
-    routes a clean way to compute these flags.)
+    parent_explicit. `color` is non-nullable in the DB, so passing it always
+    means "change to this value"; omit (None) to leave it unchanged.
     """
     with connect() as conn:
         # Reject root *before* the CTE lookup (the CTE excludes root).
@@ -179,6 +195,15 @@ def update_category(
                     raise NotFound(f"parent_id {new_parent} does not exist")
             updates.append("parent_id = ?")
             params.append(new_parent)
+
+        if color is not None:
+            if not is_valid_color(color):
+                raise ServiceError(
+                    f"unknown color {color!r}; must be one of {sorted(CATEGORY_PALETTE_KEYS)}",
+                    code="validation_error",
+                )
+            updates.append("color = ?")
+            params.append(color)
 
         if not updates:
             return existing
@@ -274,6 +299,7 @@ def _row_to_dict(row) -> dict:
         "path": row["path"],
         "is_leaf": row["child_count"] == 0,
         "is_unknown": bool(row["is_unknown"]),
+        "color": row["color"],
     }
 
 
@@ -281,7 +307,8 @@ def _row_to_dict(row) -> dict:
 
 
 def create_category_by_path(name: str, description: str | None,
-                             parent_path: str | None = None) -> dict:
+                             parent_path: str | None = None,
+                             color: str | None = None) -> dict:
     """MCP-friendly wrapper: takes a parent path string instead of an id."""
     parent_id: int | None = None
     if parent_path:
@@ -290,12 +317,13 @@ def create_category_by_path(name: str, description: str | None,
         if resolved is None:
             raise NotFound(f"parent_path {parent_path!r} does not resolve")
         parent_id = resolved
-    return create_category(name, description, parent_id)
+    return create_category(name, description, parent_id, color)
 
 
 def update_category_by_path(path: str, *, new_name: str | None = None,
                              new_description: str | None = None,
                              new_parent_path: str | None = None,
+                             new_color: str | None = None,
                              description_explicit: bool = False,
                              parent_explicit: bool = False) -> dict:
     with connect() as conn:
@@ -313,6 +341,7 @@ def update_category_by_path(path: str, *, new_name: str | None = None,
         name=new_name,
         description=new_description,
         parent_id=parent_id,
+        color=new_color,
         description_explicit=description_explicit,
         parent_explicit=parent_explicit,
     )
@@ -335,34 +364,22 @@ def delete_category_by_path(path: str) -> dict:
 # only — savings transfers, payments to credit cards, and refunds are
 # already skipped at parse time, so a Savings group here would be misleading.
 DEFAULT_CATEGORY_TREE: list[dict] = [
+    {"name": "Grocery",       "description": "Supermarket and grocery-store food shopping for the household.", "color": "moss"},
+    {"name": "Dining Out",    "description": "Restaurants, takeout, delivery, coffee shops, cafes.", "color": "rose"},
+    {"name": "Subscriptions", "description": "Recurring software / streaming / membership charges (Netflix, Spotify, gym, etc.).", "color": "lavender"},
+    {"name": "Fun",           "description": "Entertainment outside of food and subscriptions — concerts, shows, hobbies, going out.", "color": "teal"},
+    {"name": "Shopping",      "description": "Discretionary retail purchases — clothes, electronics, household goods.", "color": "sand"},
+    {"name": "Travel",        "description": "Trip expenses — flights, hotels, transit, vacation spending.", "color": "cream"},
+    {"name": "Medical",       "description": "Healthcare costs — doctor visits, pharmacy, dental, vision, copays.", "color": "sage"},
+    {"name": "Day-to-Day",    "description": "A user-managed grab bag for small recurring miscellany (corner-store snacks, random small purchases, things too minor to warrant their own bucket). The AI should never pick this category; prefer leaving a transaction uncategorised over guessing this.", "color": "stone"},
     {
-        "name": "House",
-        "description": "Costs of keeping a roof over your head — housing payments and home services.",
+        "name": "Car",
+        "description": "Costs of owning and operating a personal vehicle.",
+        "color": "graphite",
         "children": [
-            {
-                "name": "Rent",
-                "description": "Recurring monthly payment for the home itself.",
-                "children": [
-                    {"name": "Mortgage",   "description": "Bank or lender mortgage payment for the primary residence."},
-                    {"name": "Strata Fee", "description": "Condo, HOA, or strata fees for shared building maintenance."},
-                ],
-            },
-            {"name": "Utilities", "description": "Electricity, gas, water, and other recurring home utilities."},
-            {"name": "Internet",  "description": "Home internet service and mobile phone bills."},
-        ],
-    },
-    {
-        "name": "Living",
-        "description": "Day-to-day spending — transport, food, and everyday personal expenses.",
-        "children": [
-            {"name": "Car Insurance", "description": "Auto insurance premiums."},
-            {"name": "Gas",           "description": "Fuel for personal vehicles (gas stations, EV charging)."},
-            {"name": "Grocery",       "description": "Supermarket and grocery-store food shopping for the household."},
-            {"name": "Dining Out",    "description": "Restaurants, takeout, delivery, coffee shops, cafes."},
-            {"name": "Subscriptions", "description": "Recurring software / streaming / membership charges (Netflix, Spotify, gym, etc.)."},
-            {"name": "Fun",           "description": "Entertainment outside of food and subscriptions — concerts, shows, hobbies, going out."},
-            {"name": "Shopping",      "description": "Discretionary retail purchases — clothes, electronics, household goods."},
-            {"name": "Travel",        "description": "Trip expenses — flights, hotels, transit, vacation spending."},
+            {"name": "Parking",   "description": "Parking lots, meters, and garage fees.", "color": "ochre"},
+            {"name": "Gas",       "description": "Fuel for personal vehicles (gas stations, EV charging).", "color": "clay"},
+            {"name": "Insurance", "description": "Auto insurance premiums.", "color": "plum"},
         ],
     },
 ]
@@ -379,9 +396,14 @@ def seed_default_tree(conn: sqlite3.Connection) -> list[dict]:
     def walk(nodes: list[dict], parent_id: int) -> None:
         for n in nodes:
             cur = conn.execute(
-                "INSERT INTO categories (name, description, parent_id, is_unknown) "
-                "VALUES (?, ?, ?, 0)",
-                (n["name"], n.get("description"), parent_id),
+                "INSERT INTO categories (name, description, parent_id, is_unknown, color) "
+                "VALUES (?, ?, ?, 0, ?)",
+                (
+                    n["name"],
+                    n.get("description"),
+                    parent_id,
+                    n.get("color", DEFAULT_CATEGORY_COLOR),
+                ),
             )
             new_id = cur.lastrowid
             created_ids.append(new_id)

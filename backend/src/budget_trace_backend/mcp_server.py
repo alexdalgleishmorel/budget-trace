@@ -438,12 +438,22 @@ def _label_for(period_start: str, bucket: str) -> str:
 
 
 def create_category(name: str, description: str | None = None,
-                     parent_path: str | None = None) -> dict:
+                     parent_path: str | None = None,
+                     color: str | None = None) -> dict:
     """Create a new category. ``parent_path`` is an existing category path
     like ``"Living"`` or ``"Living / Subscriptions"``; omit to create a
-    top-level group. Returns the created category with its full ``path``.
+    top-level group. ``color`` is an optional palette key (e.g. ``"sage"``,
+    ``"clay"``); omit to let the server pick the neutral default. Returns
+    the created category with its full ``path``.
     """
-    return cat_svc.create_category_by_path(name, description, parent_path)
+    return cat_svc.create_category_by_path(name, description, parent_path, color)
+
+
+def set_category_color(path: str, color: str) -> dict:
+    """Change a category's tile color. ``color`` must be a palette key
+    (e.g. ``"sage"``, ``"clay"``, ``"ochre"``). Returns the updated category.
+    """
+    return cat_svc.update_category_by_path(path, new_color=color)
 
 
 def rename_category(path: str, new_name: str) -> dict:
@@ -555,6 +565,7 @@ WRITE_TOOLS: dict[str, Callable[..., Any]] = {
     "update_category_description": update_category_description,
     "move_category": move_category,
     "delete_category": delete_category,
+    "set_category_color": set_category_color,
     # Transactions
     "set_transaction_category": set_transaction_category,
     "bulk_categorise_merchant": bulk_categorise_merchant,

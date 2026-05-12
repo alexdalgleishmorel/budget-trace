@@ -62,6 +62,72 @@ class BudgetColors {
   static const tileInk2Dark = Color(0xFFB5B0A0);
 }
 
+/// Curated palette for category tiles. Keys are stored verbatim in the
+/// database (single source of truth in `backend/.../category_palette.py`);
+/// the frontend resolves each key to a light- or dark-mode color based on
+/// the active theme. Foreground text on a category tile uses `bt.tileInk`
+/// (designed for high contrast on any tile bg in either mode).
+class CategoryPalette {
+  static const String defaultKey = 'stone';
+
+  /// Ordered key list. Drives the order of swatches in the picker.
+  static const List<String> keys = [
+    'sage',
+    'moss',
+    'olive',
+    'ochre',
+    'sand',
+    'cream',
+    'clay',
+    'rose',
+    'plum',
+    'lavender',
+    'sky',
+    'teal',
+    'stone',
+    'graphite',
+  ];
+
+  static const Map<String, Color> _light = {
+    'sage':     Color(0xFFC7D4B8),
+    'moss':     Color(0xFFA8BFA0),
+    'olive':    Color(0xFFC8C28A),
+    'ochre':    Color(0xFFE5CD8A),
+    'sand':     Color(0xFFE5D5B0),
+    'cream':    Color(0xFFECE0C5),
+    'clay':     Color(0xFFE0B197),
+    'rose':     Color(0xFFE5B8B0),
+    'plum':     Color(0xFFC8A8C0),
+    'lavender': Color(0xFFB8B0CC),
+    'sky':      Color(0xFFB0C5D4),
+    'teal':     Color(0xFFA5C5BD),
+    'stone':    Color(0xFFC8C5BC),
+    'graphite': Color(0xFFA8A59C),
+  };
+
+  static const Map<String, Color> _dark = {
+    'sage':     Color(0xFF364030),
+    'moss':     Color(0xFF2A3F2C),
+    'olive':    Color(0xFF383520),
+    'ochre':    Color(0xFF4A3F1F),
+    'sand':     Color(0xFF423824),
+    'cream':    Color(0xFF423D2A),
+    'clay':     Color(0xFF4A2F22),
+    'rose':     Color(0xFF4A2D2A),
+    'plum':     Color(0xFF3D2A35),
+    'lavender': Color(0xFF2D2A3D),
+    'sky':      Color(0xFF243038),
+    'teal':     Color(0xFF1F3833),
+    'stone':    Color(0xFF2D2B22),
+    'graphite': Color(0xFF38362E),
+  };
+
+  static Color resolve(String key, Brightness brightness) {
+    final map = brightness == Brightness.dark ? _dark : _light;
+    return map[key] ?? map[defaultKey]!;
+  }
+}
+
 class BudgetRadius {
   static const card = Radius.circular(20);
   static const tile = Radius.circular(18);
@@ -288,4 +354,10 @@ ThemeData buildTheme(Brightness brightness) {
 
 extension BudgetThemeContext on BuildContext {
   BudgetTheme get bt => Theme.of(this).extension<BudgetTheme>()!;
+
+  /// Resolve a category palette key to a tile background color appropriate
+  /// for the active theme (`Brightness.dark` ↔ deep variant, otherwise the
+  /// light variant). Unknown keys fall back to the default.
+  Color categoryBg(String key) =>
+      CategoryPalette.resolve(key, Theme.of(this).brightness);
 }

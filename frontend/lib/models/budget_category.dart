@@ -5,6 +5,7 @@ class BudgetCategory {
     this.description,
     List<BudgetCategory>? children,
     this.isUnknown = false,
+    this.color = 'stone',
   }) : children = children ?? [];
 
   /// Backend-assigned id. Null for any in-memory-only category (only used
@@ -19,6 +20,10 @@ class BudgetCategory {
 
   final List<BudgetCategory> children;
   final bool isUnknown;
+
+  /// Palette key (e.g. `"sage"`, `"clay"`) — resolved to a Color at render
+  /// time via `context.categoryBg(color)`. Stored verbatim on the wire.
+  String color;
 
   bool get isLeaf => children.isEmpty;
 }

@@ -27,51 +27,56 @@ CATEGORY_TREE: list[dict] = [
     {
         "name": "House",
         "description": "Costs of keeping a roof over your head — housing payments and home services.",
+        "color": "stone",
         "children": [
             {
                 "name": "Rent",
                 "description": "Recurring monthly payment for the home itself.",
+                "color": "graphite",
                 "children": [
-                    {"name": "Mortgage",   "description": "Bank or lender mortgage payment for the primary residence."},
-                    {"name": "Strata Fee", "description": "Condo, HOA, or strata fees for shared building maintenance."},
+                    {"name": "Mortgage",   "description": "Bank or lender mortgage payment for the primary residence.", "color": "graphite"},
+                    {"name": "Strata Fee", "description": "Condo, HOA, or strata fees for shared building maintenance.", "color": "graphite"},
                 ],
             },
-            {"name": "Utilities", "description": "Electricity, gas, water, and other recurring home utilities."},
-            {"name": "Internet",  "description": "Home internet service and mobile phone bills."},
+            {"name": "Utilities", "description": "Electricity, gas, water, and other recurring home utilities.", "color": "ochre"},
+            {"name": "Internet",  "description": "Home internet service and mobile phone bills.", "color": "sky"},
         ],
     },
     {
         "name": "Living",
         "description": "Day-to-day spending — transport, food, and everyday personal expenses.",
+        "color": "sage",
         "children": [
-            {"name": "Car Insurance", "description": "Auto insurance premiums."},
-            {"name": "Gas",           "description": "Fuel for personal vehicles (gas stations, EV charging)."},
-            {"name": "Grocery",       "description": "Supermarket and grocery-store food shopping for the household."},
-            {"name": "Fun",           "description": "Entertainment, streaming subscriptions, dining out, hobbies, going out."},
-            {"name": "Shopping",      "description": "Discretionary retail purchases — clothes, electronics, household goods."},
+            {"name": "Car Insurance", "description": "Auto insurance premiums.", "color": "plum"},
+            {"name": "Gas",           "description": "Fuel for personal vehicles (gas stations, EV charging).", "color": "clay"},
+            {"name": "Grocery",       "description": "Supermarket and grocery-store food shopping for the household.", "color": "moss"},
+            {"name": "Fun",           "description": "Entertainment, streaming subscriptions, dining out, hobbies, going out.", "color": "teal"},
+            {"name": "Shopping",      "description": "Discretionary retail purchases — clothes, electronics, household goods.", "color": "sand"},
         ],
     },
     {
         "name": "Savings",
         "description": "Money set aside for the future — investments and earmarked savings.",
+        "color": "olive",
         "children": [
-            {"name": "Emergency Fund", "description": "Transfers into a rainy-day savings account."},
-            {"name": "Retirement",     "description": "Retirement contributions — 401k, IRA, RRSP, brokerage auto-invest."},
-            {"name": "Travel",         "description": "Money set aside for upcoming trips and vacations."},
+            {"name": "Emergency Fund", "description": "Transfers into a rainy-day savings account.", "color": "olive"},
+            {"name": "Retirement",     "description": "Retirement contributions — 401k, IRA, RRSP, brokerage auto-invest.", "color": "graphite"},
+            {"name": "Travel",         "description": "Money set aside for upcoming trips and vacations.", "color": "cream"},
         ],
     },
     {
         "name": "Unknown",
         "description": "Catch-all for transactions that have not been categorised yet.",
         "is_unknown": True,
+        "color": "stone",
     },
 ]
 
 
-def _insert_category(conn, name, description, parent_id, is_unknown=False) -> int:
+def _insert_category(conn, name, description, parent_id, is_unknown=False, color="stone") -> int:
     cur = conn.execute(
-        "INSERT INTO categories (name, description, parent_id, is_unknown) VALUES (?, ?, ?, ?)",
-        (name, description, parent_id, int(is_unknown)),
+        "INSERT INTO categories (name, description, parent_id, is_unknown, color) VALUES (?, ?, ?, ?, ?)",
+        (name, description, parent_id, int(is_unknown), color),
     )
     return cur.lastrowid
 
@@ -88,6 +93,7 @@ def _seed_categories(conn) -> dict[str, int]:
                 n.get("description"),
                 parent_id,
                 n.get("is_unknown", False),
+                n.get("color", "stone"),
             )
             ids[n["name"]] = cid
             walk(n.get("children", []), cid)

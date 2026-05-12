@@ -3,7 +3,6 @@ import '../models/budget_category.dart';
 import '../services/api_base.dart';
 import '../services/categories_client.dart';
 import '../theme/app_theme.dart';
-import '../widgets/budget_card.dart';
 import '../widgets/cat_icon.dart';
 import '../widgets/category_edit_modal.dart';
 import '../widgets/mobile_settings_icon.dart';
@@ -134,11 +133,12 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       context: context,
       root: widget.root,
       parent: parentNow,
-      onSubmit: (parent, name, description) async {
+      onSubmit: (parent, name, description, color) async {
         await widget.client.create(
           name: name,
           description: description,
           parentId: parent.id,
+          color: color,
         );
         await widget.onChanged();
       },
@@ -152,12 +152,13 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       root: widget.root,
       target: node,
       currentParent: currentParent,
-      onSubmit: (newParent, newName, newDescription) async {
+      onSubmit: (newParent, newName, newDescription, newColor) async {
         await widget.client.update(
           node.id!,
           name: newName,
           description: newDescription,
           parentId: newParent.id,
+          color: newColor,
           descriptionExplicit: true,
           parentExplicit: true,
         );
@@ -700,9 +701,15 @@ class _Tile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
+    final bg = context.categoryBg(node.color);
     return GestureDetector(
       onTap: onTap,
-      child: BudgetCard(
+      child: Container(
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BudgetRadius.cardBR,
+          border: Border.all(color: bt.rule),
+        ),
         child: Stack(
           children: [
             Center(
@@ -715,7 +722,7 @@ class _Tile extends StatelessWidget {
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.01,
-                    color: bt.ink,
+                    color: bt.tileInk,
                   ),
                 ),
               ),
@@ -723,14 +730,46 @@ class _Tile extends StatelessWidget {
             Positioned(
               top: 6,
               right: 6,
-              child: _IconButton(
-                icon: 'edit',
+              child: _TileEditButton(
                 onTap: onEdit,
                 bt: bt,
-                small: true,
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Variant of `_IconButton` styled to sit on top of a colored category tile.
+/// Uses translucent `tileInk` overlays so the button reads on any palette
+/// background while still feeling like a button.
+class _TileEditButton extends StatelessWidget {
+  const _TileEditButton({required this.onTap, required this.bt});
+
+  final VoidCallback onTap;
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 28,
+        height: 28,
+        decoration: BoxDecoration(
+          color: bt.tileInk.withValues(alpha: 0.08),
+          border: Border.all(color: bt.tileInk.withValues(alpha: 0.18)),
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+        ),
+        child: Center(
+          child: BudgetIcons.build(
+            'edit',
+            size: 13,
+            strokeWidth: 1.6,
+            color: bt.tileInk,
+          ),
         ),
       ),
     );
@@ -811,22 +850,19 @@ class _IconButton extends StatelessWidget {
     required this.icon,
     required this.onTap,
     required this.bt,
-    this.small = false,
   });
 
   final String icon;
   final VoidCallback onTap;
   final BudgetTheme bt;
-  final bool small;
 
   @override
   Widget build(BuildContext context) {
-    final size = small ? 28.0 : 34.0;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        width: size,
-        height: size,
+        width: 34,
+        height: 34,
         decoration: BoxDecoration(
           color: bt.surface,
           border: Border.all(color: bt.ruleStrong),
@@ -835,7 +871,7 @@ class _IconButton extends StatelessWidget {
         alignment: Alignment.center,
         child: BudgetIcons.build(
           icon,
-          size: small ? 13 : 16,
+          size: 16,
           strokeWidth: 1.8,
           color: bt.ink2,
         ),

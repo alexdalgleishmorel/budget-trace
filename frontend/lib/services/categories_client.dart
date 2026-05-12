@@ -14,6 +14,7 @@ class CategoryDto {
     required this.path,
     required this.isLeaf,
     required this.isUnknown,
+    required this.color,
     this.description,
   });
 
@@ -24,6 +25,7 @@ class CategoryDto {
   final bool isLeaf;
   final bool isUnknown;
   final String? description;
+  final String color;
 
   factory CategoryDto.fromJson(Map<String, dynamic> j) => CategoryDto(
         id: j['id'] as int,
@@ -33,6 +35,7 @@ class CategoryDto {
         isLeaf: j['is_leaf'] as bool,
         isUnknown: j['is_unknown'] as bool,
         description: j['description'] as String?,
+        color: j['color'] as String,
       );
 }
 
@@ -51,6 +54,7 @@ class CategoriesClient {
     required String name,
     String? description,
     int? parentId,
+    String? color,
   }) async {
     final resp = await _client.post(
       Uri.parse('$apiBaseUrl/categories'),
@@ -59,18 +63,21 @@ class CategoriesClient {
         'name': name,
         'description': ?description,
         'parent_id': ?parentId,
+        'color': ?color,
       }),
     );
     return CategoryDto.fromJson(decodeOrThrow(resp) as Map<String, dynamic>);
   }
 
   /// Pass `descriptionExplicit: true` if you want `description: null` to mean
-  /// "clear it" (omitting `description` always means "no change").
+  /// "clear it" (omitting `description` always means "no change"). `color`
+  /// is non-nullable on the server; omitting it means "no change".
   Future<CategoryDto> update(
     int id, {
     String? name,
     String? description,
     int? parentId,
+    String? color,
     bool descriptionExplicit = false,
     bool parentExplicit = false,
   }) async {
@@ -78,6 +85,7 @@ class CategoriesClient {
     if (name != null) body['name'] = name;
     if (descriptionExplicit) body['description'] = description;
     if (parentExplicit) body['parent_id'] = parentId;
+    if (color != null) body['color'] = color;
     final resp = await _client.patch(
       Uri.parse('$apiBaseUrl/categories/$id'),
       headers: {'Content-Type': 'application/json'},

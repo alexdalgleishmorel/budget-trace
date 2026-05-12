@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS categories (
     parent_id    INTEGER REFERENCES categories(id),
     name         TEXT NOT NULL,
     description  TEXT,
-    is_unknown   INTEGER NOT NULL DEFAULT 0
+    is_unknown   INTEGER NOT NULL DEFAULT 0,
+    color        TEXT NOT NULL DEFAULT 'stone'
 );
 
 CREATE TABLE IF NOT EXISTS transactions (
@@ -275,8 +276,8 @@ def ensure_root_category(conn: sqlite3.Connection) -> None:
     ).fetchone()
     if existing is None:
         conn.execute(
-            "INSERT INTO categories (name, description, parent_id, is_unknown) "
-            "VALUES ('Budget', 'Top-level container for all spending and savings.', NULL, 0)"
+            "INSERT INTO categories (name, description, parent_id, is_unknown, color) "
+            "VALUES ('Budget', 'Top-level container for all spending and savings.', NULL, 0, 'stone')"
         )
 
 
@@ -299,12 +300,12 @@ def bootstrap_db() -> None:
 # " / " separator. The AI sees paths like "Living / Grocery", never "Budget /
 # Living / Grocery".
 CATEGORY_PATHS_CTE = f"""
-WITH RECURSIVE category_paths(id, parent_id, name, description, is_unknown, path) AS (
-    SELECT id, parent_id, name, description, is_unknown, name AS path
+WITH RECURSIVE category_paths(id, parent_id, name, description, is_unknown, color, path) AS (
+    SELECT id, parent_id, name, description, is_unknown, color, name AS path
       FROM categories
      WHERE parent_id = (SELECT id FROM categories WHERE parent_id IS NULL)
     UNION ALL
-    SELECT c.id, c.parent_id, c.name, c.description, c.is_unknown,
+    SELECT c.id, c.parent_id, c.name, c.description, c.is_unknown, c.color,
            cp.path || '{PATH_SEPARATOR}' || c.name AS path
       FROM categories c
       JOIN category_paths cp ON c.parent_id = cp.id
@@ -346,7 +347,7 @@ def fetch_category_tree(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         f"""
         {CATEGORY_PATHS_CTE}
-        SELECT cp.path, cp.description, cp.is_unknown,
+        SELECT cp.path, cp.description, cp.is_unknown, cp.color,
                (SELECT COUNT(*) FROM categories c WHERE c.parent_id = cp.id) AS child_count
           FROM category_paths cp
          ORDER BY cp.path
@@ -358,6 +359,7 @@ def fetch_category_tree(conn: sqlite3.Connection) -> list[dict]:
             "description": r["description"],
             "is_leaf": r["child_count"] == 0,
             "is_unknown": bool(r["is_unknown"]),
+            "color": r["color"],
         }
         for r in rows
     ]

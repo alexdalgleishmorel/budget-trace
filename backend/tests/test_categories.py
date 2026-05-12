@@ -187,15 +187,19 @@ def test_seed_defaults_on_empty_tree(tmp_path: Path, monkeypatch) -> None:
         created = resp.json()
 
         paths = {row["path"] for row in created}
-        # Spot-check structural expectations
-        assert "House" in paths
-        assert "House / Rent / Mortgage" in paths
-        assert "House / Rent / Strata Fee" in paths
-        assert "Living / Grocery" in paths
-        assert "Living / Dining Out" in paths
-        assert "Living / Subscriptions" in paths
-        assert "Living / Travel" in paths
-        # Expenses-only — no Savings group.
+        # Spot-check structural expectations: flat top-level for daily-life
+        # buckets, plus a nested Car group for vehicle-related expenses.
+        assert "Grocery" in paths
+        assert "Dining Out" in paths
+        assert "Medical" in paths
+        assert "Day-to-Day" in paths
+        assert "Car" in paths
+        assert "Car / Parking" in paths
+        assert "Car / Gas" in paths
+        assert "Car / Insurance" in paths
+        # Old House / Living groups and Savings are gone.
+        assert not any(p.startswith("House") for p in paths)
+        assert not any(p.startswith("Living") for p in paths)
         assert not any(p.startswith("Savings") for p in paths)
 
 
