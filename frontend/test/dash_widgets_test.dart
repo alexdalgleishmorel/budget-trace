@@ -19,7 +19,7 @@ DashboardWidget _fake(String type) => DashboardWidget(
     );
 
 Widget _wrap(Widget child) => MaterialApp(
-      theme: ThemeData(extensions: const [BudgetTheme.light]),
+      theme: ThemeData(extensions: const [BudgetTheme.dark]),
       home: Scaffold(
         body: SizedBox(width: 300, height: 200, child: child),
       ),

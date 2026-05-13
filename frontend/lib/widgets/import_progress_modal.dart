@@ -156,11 +156,11 @@ class _InProgressBody extends StatelessWidget {
         ),
         const SizedBox(height: 16),
         ClipRRect(
-          borderRadius: const BorderRadius.all(Radius.circular(2)),
+          borderRadius: const BorderRadius.all(Radius.circular(999)),
           child: LinearProgressIndicator(
-            minHeight: 4,
-            backgroundColor: bt.surface2,
-            valueColor: AlwaysStoppedAnimation(bt.ink),
+            minHeight: 6,
+            backgroundColor: bt.glass2,
+            valueColor: AlwaysStoppedAnimation(bt.accent),
           ),
         ),
         const SizedBox(height: 14),

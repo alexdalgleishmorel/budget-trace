@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Expense Visualizer — Visual Wireframes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="palettes.css" />
+<style>
+  html, body { margin: 0; padding: 0; background: #07070b; color: #fff; font-family: var(--ev-font, "Inter", system-ui, sans-serif); }
+  * { box-sizing: border-box; }
+  body { min-height: 100vh; }
+</style>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" src="design-canvas.jsx"></script>
+<script type="text/babel" src="tweaks-panel.jsx"></script>
+<script type="text/babel" src="icons.jsx"></script>
+<script type="text/babel" src="app-utils.jsx"></script>
+<script type="text/babel" src="chrome.jsx"></script>
+<script type="text/babel" src="screens-1.jsx"></script>
+<script type="text/babel" src="screens-2.jsx"></script>
+<script type="text/babel" src="modals.jsx"></script>
+<script type="text/babel" src="design-system.jsx"></script>
+<script type="text/babel" src="login.jsx"></script>
+<script type="text/babel" src="app.jsx"></script>
+
+<script type="text/babel" data-presets="env,react">
+const { useState, useEffect } = React;
+const { DesignCanvas, DCSection, DCArtboard } = window;
+const { TweaksPanel, useTweaks, TweakSection, TweakRadio, TweakToggle } = window;
+const { PhoneFrame, DesktopFrame } = window.EVChrome;
+const { App } = window.EVApp;
+const { DesignSystemScreen } = window.EVDesignSystem;
+const { LoginScreen } = window.EVLogin;
+
+const PALETTES = [
+  { id: "ocean",    label: "Ocean",    desc: "Cobalt → cyan → soft pink" },
+  { id: "lagoon",   label: "Lagoon",   desc: "Teal → seafoam, calm tropical" },
+  { id: "twilight", label: "Twilight", desc: "Indigo → violet → dusk" },
+  { id: "arctic",   label: "Arctic",   desc: "Icy blue → silver → mint" },
+];
+
+const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
+  "palette": "arctic",
+  "mode": "light"
+}/*EDITMODE-END*/;
+
+function Root() {
+  const [t, setTweak] = useTweaks(TWEAK_DEFAULTS);
+  const palette = t.palette;
+  const mode = t.mode;
+
+  // also apply palette/mode at the page level so the design-canvas background gets the orbs
+  useEffect(() => {
+    document.body.dataset.palette = palette;
+    document.body.dataset.mode = mode;
+  }, [palette, mode]);
+
+  const frameProps = { palette, mode };
+
+  return (
+    <>
+      <DesignCanvas title="Expense Visualizer — Visual Wireframes">
+
+        <DCSection id="auth" title="00 · Authentication">
+          <DCArtboard id="login-desk" label="Desktop · Sign in" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800} title="Sign in"><LoginScreen variant="signin" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="signup-desk" label="Desktop · Create account" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800} title="Create account"><LoginScreen variant="signup" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="login-phone" label="Mobile · Sign in" width={390} height={844}>
+            <PhoneFrame {...frameProps} width={390} height={844}><LoginScreen variant="signin" compact /></PhoneFrame>
+          </DCArtboard>
+          <DCArtboard id="signup-phone" label="Mobile · Create account" width={390} height={844}>
+            <PhoneFrame {...frameProps} width={390} height={844}><LoginScreen variant="signup" compact /></PhoneFrame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="overview" title="01 · Overview">
+          <DCArtboard id="overview-desk" label="Desktop · Expenses · Populated" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="expenses" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="overview-phone" label="Mobile · Expenses" width={390} height={844}>
+            <PhoneFrame {...frameProps} width={390} height={844}><App compact={true} startTab="expenses" /></PhoneFrame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="categories" title="02 · Categories">
+          <DCArtboard id="cat-desk" label="Desktop · Categories · Populated" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="categories" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="cat-phone" label="Mobile · Categories · Populated" width={390} height={844}>
+            <PhoneFrame {...frameProps} width={390} height={844}><App compact={true} startTab="categories" /></PhoneFrame>
+          </DCArtboard>
+          <DCArtboard id="cat-empty" label="Desktop · Categories · Empty state" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="categories" empty={{ categories: true }} /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="cat-new" label="Desktop · New category modal" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="categories" initialModal="new-cat" /></DesktopFrame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="expenses" title="03 · Expenses">
+          <DCArtboard id="exp-phone-empty" label="Mobile · Expenses · Empty cycle" width={390} height={844}>
+            <PhoneFrame {...frameProps} width={390} height={844}><App compact={true} startTab="expenses" empty={{ expenses: true }} /></PhoneFrame>
+          </DCArtboard>
+          <DCArtboard id="exp-tx-modal" label="Desktop · Transaction edit modal" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="expenses" initialModal="tx" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="exp-import" label="Desktop · Import — parsing" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="expenses" initialModal="import" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="exp-import-ok" label="Desktop · Import — success" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="expenses" initialModal="import-success" /></DesktopFrame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="widgets" title="04 · Widgets">
+          <DCArtboard id="wid-desk" label="Desktop · Dashboard" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="widgets" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="wid-phone" label="Mobile · Dashboard" width={390} height={844}>
+            <PhoneFrame {...frameProps} width={390} height={844}><App compact={true} startTab="widgets" /></PhoneFrame>
+          </DCArtboard>
+          <DCArtboard id="wid-add" label="Desktop · Add widget drawer" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="widgets" initialModal="add-widget" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="wid-switcher" label="Desktop · Dashboard switcher" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="widgets" initialModal="switcher" /></DesktopFrame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="insights" title="05 · Insights">
+          <DCArtboard id="ins-desk" label="Desktop · Chat with inline widget" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="insights" /></DesktopFrame>
+          </DCArtboard>
+          <DCArtboard id="ins-phone" label="Mobile · Chat" width={390} height={844}>
+            <PhoneFrame {...frameProps} width={390} height={844}><App compact={true} startTab="insights" /></PhoneFrame>
+          </DCArtboard>
+          <DCArtboard id="ins-off" label="Desktop · Insights · AI disabled" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="insights" empty={{ insights: true }} /></DesktopFrame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="account" title="06 · Account & overlays">
+          <DCArtboard id="acc" label="Desktop · Account modal" width={1280} height={800}>
+            <DesktopFrame {...frameProps} width={1280} height={800}><App compact={false} startTab="expenses" initialModal="account" /></DesktopFrame>
+          </DCArtboard>
+        </DCSection>
+
+        <DCSection id="design-system" title="07 · Design system">
+          <DCArtboard id="ds" label="Tokens · type · glass recipe · icons" width={1280} height={1700}>
+            <div className="ev-surface" data-palette={palette} data-mode={mode} style={{ width: 1280, height: 1700, position: "relative", overflow: "hidden", borderRadius: 16 }}>
+              <span className="ev-orb-c" />
+              <div className="ev-content" style={{ height: "100%" }}>
+                <DesignSystemScreen />
+              </div>
+            </div>
+          </DCArtboard>
+        </DCSection>
+
+      </DesignCanvas>
+
+      <TweaksPanel title="Tweaks">
+        <TweakSection title="Appearance">
+          <TweakRadio tweakKey="mode" value={mode} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }]} onChange={(v) => setTweak('mode', v)} />
+        </TweakSection>
+      </TweaksPanel>
+    </>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<Root />);
+</script>
+
+</body>
+</html>

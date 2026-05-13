@@ -8,7 +8,7 @@ Single-user settings for the local-dev build. There's a real `users` table (id=1
   - `ai` — PDF / image / general AI parsing on `POST /transactions/import?parser=ai` (403 when off); auto-categorize-on-import via [`importers/categorizer.py`](../backend/src/budget_trace_backend/importers/categorizer.py); the Insights chat (`POST /chat/sessions/{id}/messages` returns 403 when off; historical reads stay open).
   - `widgets` — the Widgets tab and every `/dashboards/*`, `/widget-metrics`, `/chat/messages/{id}/save-to-dashboard`, `/ai-widget-audit` route (403 + `feature_disabled` when off). See [widgets.md](widgets.md).
 - `selected_model` — a model id from [`services/ai/registry.py`](../backend/src/budget_trace_backend/services/ai/registry.py). Drives every AI call (chat, parser, auto-categorizer). `null` falls back to the `SELECTED_MODEL` env var, then the registry's `DEFAULT_MODEL`. Validated server-side; `PATCH` rejects unknown ids with 422.
-- `theme` — `system` | `light` | `dark`. Drives `MaterialApp.themeMode` in `main.dart`.
+- `theme` — legacy `system` | `light` | `dark` column. **Frontend ignores this** since the Arctic rework — the app is dark-only and `MaterialApp` hard-codes `themeMode: ThemeMode.dark`. The field stays in the DB and on the wire to preserve the API shape; nothing on the Account screen lets the user change it any more.
 - `last_dashboard_id` — nullable FK-ish pointer to the dashboard the user was last viewing. `GET /dashboards/{id}` stamps it as a side effect so the Widgets tab can reopen on the same dashboard. Surfaced on `/me` for the frontend to seed initial navigation.
 
 Per-provider API keys are stored in a separate table — [`ai_provider_keys(user_id, provider, api_key)`](../backend/src/budget_trace_backend/db.py) — one row per provider (`anthropic`, `openai`, `google`, …). The model registry tells the runtime which provider's key to use for any given model. Each provider also accepts an env-var fallback: `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GEMINI_API_KEY` (the names match each SDK's convention; LiteLLM uses them too).
@@ -66,15 +66,16 @@ The `widgets` flag is `true` by default and can be flipped off via `PATCH /me {"
 
 ## UI: the Account screen
 
-[frontend/lib/screens/account_screen.dart](../frontend/lib/screens/account_screen.dart). Two cards:
+[frontend/lib/screens/account_screen.dart](../frontend/lib/screens/account_screen.dart). One card:
 
-1. **Appearance** — three-segment control: System / Light / Dark. Top of the screen.
-2. **AI features** — collapsible card. Tap the header to expand. The first row inside is the master "AI features" switch; when it's on, the card also reveals:
-   - **API keys** — one row per provider in `me.providers`, fully data-driven. Each row has a label, a status pill (Stored / Env / Not set), a masked text field with show/hide, and Save + Clear actions. Adding a provider on the backend automatically yields a new row here.
-   - **AI Spend** — read-only chip showing cumulative USD spent on AI, with the canonical disclaimer that the figure is estimated from token usage and the selected model's published per-MTok price (not the same as your provider bill).
-   - **Model** — dropdown built from `available_models`; each item shows `Provider — Model Name` plus per-MTok input/output rates. When the selected model's provider has no key, an inline warning appears beneath the dropdown. "Reset to default" sends `selected_model: null`.
+**AI features** — collapsible card. Tap the header to expand. The first row inside is the master "AI features" switch; when it's on, the card also reveals:
+- **API keys** — one row per provider in `me.providers`, fully data-driven. Each row has a label, a status pill (Stored / Env / Not set), a masked text field with show/hide, and Save + Clear actions. Adding a provider on the backend automatically yields a new row here.
+- **AI Spend** — read-only chip showing cumulative USD spent on AI, with the canonical disclaimer that the figure is estimated from token usage and the selected model's published per-MTok price (not the same as your provider bill).
+- **Model** — dropdown built from `available_models`; each item shows `Provider — Model Name` plus per-MTok input/output rates. When the selected model's provider has no key, an inline warning appears beneath the dropdown. "Reset to default" sends `selected_model: null`.
 
-Every control bubbles its update through `MeClient.update()` immediately and bubbles the resulting `Me` back up to `BudgetTraceApp` via `onMeChanged`. That triggers `MaterialApp.themeMode` to re-resolve, the Insights tab to show/hide, the Dropzone's AI toggle to appear/disappear, and the global AI-spend chip in the upload Dropzone to refresh — all in one pass.
+There is no Appearance control. The app is dark-only after the Arctic rework — the `theme` field on `Me` is preserved on the wire but is never surfaced to the user (see the bullet above for the column's status).
+
+Every control bubbles its update through `MeClient.update()` immediately and bubbles the resulting `Me` back up to `BudgetTraceApp` via `onMeChanged`. That triggers the Insights tab to show/hide, the Dropzone's AI toggle to appear/disappear, and the global AI-spend chip to refresh — all in one pass.
 
 The same `AiSpendChip` widget renders the chip in the **Account screen** (cumulative total), the **Dropzone** in Expenses (cumulative total — co-located with the only non-chat AI surface), the **Insights chat header** (per-active-chat amount), and each row of the **chat history view**. Desktop's side nav has no chip; the metric only appears next to actual AI surfaces.
 

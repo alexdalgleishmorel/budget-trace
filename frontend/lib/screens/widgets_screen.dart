@@ -4,6 +4,8 @@ import '../models/dashboard.dart';
 import '../services/dashboards_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/cat_icon.dart';
+import '../widgets/glass.dart';
+import '../widgets/mobile_settings_icon.dart';
 import 'dashboard_screen.dart';
 
 /// Tab root for the Widgets feature.
@@ -18,12 +20,18 @@ class WidgetsScreen extends StatefulWidget {
   const WidgetsScreen({
     super.key,
     required this.onLastDashboardChanged,
+    required this.onOpenAccount,
   });
 
   /// Called whenever the backend's `last_dashboard_id` may have changed
   /// server-side (i.e. after opening a dashboard). Triggers the parent to
   /// re-fetch /me so the cached value stays current across tab swaps.
   final VoidCallback onLastDashboardChanged;
+
+  /// Pushes the Account screen — wired to the mobile header's settings
+  /// icon (matches Categories / Expenses / Insights mobile pattern).
+  /// Desktop has its own Account button in the side nav.
+  final VoidCallback onOpenAccount;
 
   @override
   State<WidgetsScreen> createState() => _WidgetsScreenState();
@@ -168,9 +176,15 @@ class _WidgetsScreenState extends State<WidgetsScreen> {
           return Padding(
             padding: padding,
             child: list.isEmpty
-                ? _EmptyState(onCreate: _createNew)
+                ? _EmptyState(
+                    onCreate: _createNew,
+                    isDesktop: isDesktop,
+                    onOpenAccount: widget.onOpenAccount,
+                  )
                 : _ListBody(
                     bt: bt,
+                    isDesktop: isDesktop,
+                    onOpenAccount: widget.onOpenAccount,
                     dashboards: _visibleDashboards(list),
                     totalCount: list.length,
                     filter: _filter,
@@ -191,6 +205,8 @@ class _WidgetsScreenState extends State<WidgetsScreen> {
 class _ListBody extends StatelessWidget {
   const _ListBody({
     required this.bt,
+    required this.isDesktop,
+    required this.onOpenAccount,
     required this.dashboards,
     required this.totalCount,
     required this.filter,
@@ -203,6 +219,8 @@ class _ListBody extends StatelessWidget {
   });
 
   final BudgetTheme bt;
+  final bool isDesktop;
+  final VoidCallback onOpenAccount;
   final List<DashboardSummary> dashboards;
 
   /// Total number of dashboards (pre-filter). Used to render the empty-
@@ -221,27 +239,13 @@ class _ListBody extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Widgets',
-                style: TextStyle(
-                  fontSize: 30,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.025,
-                  color: bt.ink,
-                ),
-              ),
-            ),
-            FilledButton.icon(
-              onPressed: onCreate,
-              icon: BudgetIcons.build('plus', size: 14, color: bt.bg),
-              label: const Text('New dashboard'),
-            ),
-          ],
+        _Header(
+          bt: bt,
+          isDesktop: isDesktop,
+          onCreate: onCreate,
+          onOpenAccount: onOpenAccount,
         ),
-        const SizedBox(height: 14),
+        SizedBox(height: isDesktop ? 14 : 12),
         // Search bar — local string filter, case-insensitive substring
         // match against the dashboard name.
         TextField(
@@ -269,11 +273,11 @@ class _ListBody extends StatelessWidget {
                   ),
             border: OutlineInputBorder(
               borderRadius: const BorderRadius.all(Radius.circular(10)),
-              borderSide: BorderSide(color: bt.rule),
+              borderSide: BorderSide(color: bt.fieldBorder),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: const BorderRadius.all(Radius.circular(10)),
-              borderSide: BorderSide(color: bt.rule),
+              borderSide: BorderSide(color: bt.fieldBorder),
             ),
           ),
         ),
@@ -333,23 +337,19 @@ class _DashboardTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: bt.surface,
-        border: Border.all(color: bt.rule),
-        borderRadius: const BorderRadius.all(Radius.circular(12)),
-      ),
-      clipBehavior: Clip.antiAlias,
+    return GlassSurface(
+      tier: GlassTier.t1,
+      radius: 14,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           _TableHeader(bt: bt),
-          Divider(height: 1, color: bt.rule),
+          Divider(height: 1, color: bt.glassBorder),
           Expanded(
             child: ListView.separated(
               padding: EdgeInsets.zero,
               itemCount: dashboards.length,
-              separatorBuilder: (_, _) => Divider(height: 1, color: bt.ruleSoft),
+              separatorBuilder: (_, _) => Divider(height: 1, color: bt.glassBorder),
               itemBuilder: (_, i) => _TableRow(
                 bt: bt,
                 dashboard: dashboards[i],
@@ -378,7 +378,6 @@ class _TableHeader extends StatelessWidget {
       color: bt.ink4,
     );
     return Container(
-      color: bt.surface2,
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
       child: Row(
         children: [
@@ -409,9 +408,10 @@ class _TableRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: bt.surface,
+      color: Colors.transparent,
       child: InkWell(
         onTap: onOpen,
+        hoverColor: bt.glass2,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
           child: Row(
@@ -467,44 +467,130 @@ class _TableRow extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onCreate});
+  const _EmptyState({
+    required this.onCreate,
+    required this.isDesktop,
+    required this.onOpenAccount,
+  });
   final VoidCallback onCreate;
+  final bool isDesktop;
+  final VoidCallback onOpenAccount;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return Center(
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 380),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            BudgetIcons.build('grid', size: 28, color: bt.ink3),
-            const SizedBox(height: 14),
-            Text(
-              'No dashboards yet',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Mobile gets the same compact header as the populated list state —
+        // settings icon on the left, "+ New" on the right. Without it the
+        // empty state has no way to reach Account on mobile.
+        if (!isDesktop) ...[
+          _Header(
+            bt: bt,
+            isDesktop: false,
+            onCreate: onCreate,
+            onOpenAccount: onOpenAccount,
+          ),
+          const SizedBox(height: 12),
+        ],
+        Expanded(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 380),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  BudgetIcons.build('grid', size: 28, color: bt.ink3),
+                  const SizedBox(height: 14),
+                  Text(
+                    'No dashboards yet',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: bt.ink,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Dashboards collect widgets — charts, big-number tiles, and '
+                    'tables — that you can resize and arrange. Start with one to '
+                    'see your spending at a glance.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 13, color: bt.ink4, height: 1.5),
+                  ),
+                  const SizedBox(height: 18),
+                  GlassButton(
+                    label: 'Create your first dashboard',
+                    onPressed: onCreate,
+                    variant: GlassButtonVariant.primary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Tab header shared between the populated list and the mobile empty state.
+/// Desktop keeps the page title; mobile drops it (the bottom nav already
+/// labels the tab) and puts the Account settings icon in its place.
+class _Header extends StatelessWidget {
+  const _Header({
+    required this.bt,
+    required this.isDesktop,
+    required this.onCreate,
+    required this.onOpenAccount,
+  });
+
+  final BudgetTheme bt;
+  final bool isDesktop;
+  final VoidCallback onCreate;
+  final VoidCallback onOpenAccount;
+
+  @override
+  Widget build(BuildContext context) {
+    if (isDesktop) {
+      return Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Text(
+              'Widgets',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 30,
                 fontWeight: FontWeight.w600,
+                letterSpacing: -0.025,
                 color: bt.ink,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              'Dashboards collect widgets — charts, big-number tiles, and '
-              'tables — that you can resize and arrange. Start with one to '
-              'see your spending at a glance.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 13, color: bt.ink4, height: 1.5),
-            ),
-            const SizedBox(height: 18),
-            FilledButton(
-              onPressed: onCreate,
-              child: const Text('Create your first dashboard'),
-            ),
-          ],
+          ),
+          GlassButton(
+            label: 'New dashboard',
+            onPressed: onCreate,
+            variant: GlassButtonVariant.primary,
+            icon: BudgetIcons.build('plus', size: 14, strokeWidth: 1.8),
+          ),
+        ],
+      );
+    }
+    // Mobile: settings icon (top-left) + compact "+ New" primary (top-right).
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        MobileSettingsIcon(onTap: onOpenAccount),
+        const Spacer(),
+        GlassButton(
+          label: 'New dashboard',
+          onPressed: onCreate,
+          variant: GlassButtonVariant.primary,
+          compact: true,
+          icon: BudgetIcons.build('plus', size: 13, strokeWidth: 1.8),
         ),
-      ),
+      ],
     );
   }
 }

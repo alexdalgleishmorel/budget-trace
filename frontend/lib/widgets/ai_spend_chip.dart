@@ -51,9 +51,9 @@ class AiSpendChip extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
         decoration: BoxDecoration(
-          color: bt.surface2,
+          color: bt.glass2,
           borderRadius: BudgetRadius.chipBR,
-          border: Border.all(color: bt.ruleStrong),
+          border: Border.all(color: bt.glassBorder),
         ),
         child: Text(
           text,

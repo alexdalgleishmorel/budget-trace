@@ -5,6 +5,7 @@ import '../services/categories_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/cat_icon.dart';
 import '../widgets/category_edit_modal.dart';
+import '../widgets/glass.dart';
 import '../widgets/mobile_settings_icon.dart';
 
 class CategoriesScreen extends StatefulWidget {
@@ -281,8 +282,8 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
       children: [
         Container(
           padding: const EdgeInsets.fromLTRB(28, 22, 22, 18),
-          decoration:
-              BoxDecoration(border: Border(bottom: BorderSide(color: bt.rule))),
+          decoration: BoxDecoration(
+              border: Border(bottom: BorderSide(color: bt.glassBorder))),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -295,8 +296,8 @@ class _CategoriesScreenState extends State<CategoriesScreen> {
                       child: Text(
                         'CATEGORIES',
                         style: TextStyle(
-                          fontSize: 10.5,
-                          letterSpacing: 0.12 * 10.5,
+                          fontSize: 11,
+                          letterSpacing: 0.06 * 11,
                           color: _path.isEmpty ? bt.ink4 : bt.ink3,
                           fontWeight: FontWeight.w500,
                         ),
@@ -364,16 +365,16 @@ class _FirstRunEmpty extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            Container(
-              width: 56,
-              height: 56,
-              decoration: BoxDecoration(
-                color: bt.surface,
-                border: Border.all(color: bt.ruleStrong),
-                borderRadius: const BorderRadius.all(Radius.circular(16)),
+            GlassSurface(
+              tier: GlassTier.t1,
+              radius: 20,
+              padding: const EdgeInsets.all(20),
+              child: BudgetIcons.build(
+                'grid',
+                size: 32,
+                strokeWidth: 1.6,
+                color: bt.ink2,
               ),
-              alignment: Alignment.center,
-              child: Icon(Icons.grid_view_outlined, size: 24, color: bt.ink3),
             ),
             const SizedBox(height: 18),
             Text(
@@ -388,7 +389,7 @@ class _FirstRunEmpty extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Categories are how Budget Trace organises your spending — and '
+              'Categories are how Expense Visualizer organises your spending — and '
               'how the AI knows where to file things. Create your first one, '
               'or start with a sensible default set.',
               textAlign: TextAlign.center,
@@ -451,32 +452,11 @@ class _PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onTap == null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-        decoration: BoxDecoration(
-          color: disabled ? bt.ink4 : bt.ink,
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            BudgetIcons.build(icon, size: 14, strokeWidth: 2, color: bt.bg),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: bt.bg,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return GlassButton(
+      label: label,
+      onPressed: onTap,
+      variant: GlassButtonVariant.primary,
+      icon: BudgetIcons.build(icon, size: 14, strokeWidth: 1.8, color: Colors.white),
     );
   }
 }
@@ -495,41 +475,20 @@ class _SecondaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onTap == null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-        decoration: BoxDecoration(
-          color: bt.surface,
-          border: Border.all(color: bt.ruleStrong),
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            if (busy) ...[
-              SizedBox(
-                width: 12, height: 12,
-                child: CircularProgressIndicator(
-                  strokeWidth: 1.5,
-                  valueColor: AlwaysStoppedAnimation(bt.ink3),
-                ),
+    return GlassButton(
+      label: label,
+      onPressed: onTap,
+      variant: GlassButtonVariant.secondary,
+      icon: busy
+          ? SizedBox(
+              width: 12,
+              height: 12,
+              child: CircularProgressIndicator(
+                strokeWidth: 1.5,
+                valueColor: AlwaysStoppedAnimation(bt.ink3),
               ),
-              const SizedBox(width: 8),
-            ],
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: disabled ? bt.ink4 : bt.ink2,
-              ),
-            ),
-          ],
-        ),
-      ),
+            )
+          : null,
     );
   }
 }
@@ -702,73 +661,105 @@ class _Tile extends StatelessWidget {
   Widget build(BuildContext context) {
     final bt = context.bt;
     final bg = context.categoryBg(node.color);
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BudgetRadius.cardBR,
-          border: Border.all(color: bt.rule),
-        ),
-        child: Stack(
-          children: [
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Text(
-                  node.name,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: -0.01,
-                    color: bt.tileInk,
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(20),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: GlassSurface(
+          tier: GlassTier.t1,
+          radius: 20,
+          child: Stack(
+            children: [
+              // Radial wash from bottom-left in the category's hue.
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(20),
+                      gradient: RadialGradient(
+                        center: const Alignment(-1, 1),
+                        radius: 1.4,
+                        colors: [
+                          bg.withValues(alpha: 0.55),
+                          bg.withValues(alpha: 0.0),
+                        ],
+                        stops: const [0.0, 0.7],
+                      ),
+                    ),
                   ),
                 ),
               ),
-            ),
-            Positioned(
-              top: 6,
-              right: 6,
-              child: _TileEditButton(
-                onTap: onEdit,
-                bt: bt,
+              Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        // Color dot
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: bg,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const Spacer(),
+                        _TileEditButton(onTap: onEdit),
+                      ],
+                    ),
+                    const Spacer(),
+                    Text(
+                      node.name,
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: -0.01,
+                        color: bt.ink,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// Variant of `_IconButton` styled to sit on top of a colored category tile.
-/// Uses translucent `tileInk` overlays so the button reads on any palette
-/// background while still feeling like a button.
+/// Small edit-pencil pill that floats over a category tile.
 class _TileEditButton extends StatelessWidget {
-  const _TileEditButton({required this.onTap, required this.bt});
+  const _TileEditButton({required this.onTap});
 
   final VoidCallback onTap;
-  final BudgetTheme bt;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: bt.tileInk.withValues(alpha: 0.08),
-          border: Border.all(color: bt.tileInk.withValues(alpha: 0.18)),
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
-        ),
-        child: Center(
+    final bt = context.bt;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: GlassSurface(
+          tier: GlassTier.t2,
+          radius: 8,
+          elevated: false,
+          sheen: false,
+          padding: const EdgeInsets.all(6),
           child: BudgetIcons.build(
             'edit',
             size: 13,
             strokeWidth: 1.6,
-            color: bt.tileInk,
+            color: bt.ink2,
           ),
         ),
       ),
@@ -812,29 +803,13 @@ class _LeafView extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 24),
-          GestureDetector(
-            onTap: onEdit,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-              decoration: BoxDecoration(
-                color: bt.surface,
-                border: Border.all(color: bt.ruleStrong),
-                borderRadius: const BorderRadius.all(Radius.circular(10)),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  BudgetIcons.build('edit',
-                      size: 14, strokeWidth: 1.8, color: bt.ink2),
-                  const SizedBox(width: 8),
-                  Text('Edit',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                          color: bt.ink2)),
-                ],
-              ),
-            ),
+          GlassButton(
+            label: 'Edit',
+            onPressed: onEdit,
+            variant: GlassButtonVariant.secondary,
+            compact: true,
+            icon: BudgetIcons.build('edit',
+                size: 14, strokeWidth: 1.6, color: bt.ink2),
           ),
         ],
         ),
@@ -858,22 +833,24 @@ class _IconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: bt.surface,
-          border: Border.all(color: bt.ruleStrong),
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
-        ),
-        alignment: Alignment.center,
-        child: BudgetIcons.build(
-          icon,
-          size: 16,
-          strokeWidth: 1.8,
-          color: bt.ink2,
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: GlassSurface(
+          tier: GlassTier.t2,
+          radius: 10,
+          elevated: false,
+          sheen: false,
+          padding: const EdgeInsets.all(9),
+          child: BudgetIcons.build(
+            icon,
+            size: 16,
+            strokeWidth: 1.6,
+            color: bt.ink2,
+          ),
         ),
       ),
     );

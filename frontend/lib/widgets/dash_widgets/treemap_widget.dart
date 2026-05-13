@@ -27,10 +27,12 @@ class TreemapWidgetBody extends StatelessWidget {
     raw.sort((a, b) =>
         (b['value'] as num).toDouble().compareTo((a['value'] as num).toDouble()));
 
-    // Curated, opaque palette where every entry pairs with white text at
-    // a usable contrast ratio. Avoids the lighter `tile*` swatches so the
-    // text contrast doesn't depend on per-tile luminance heuristics.
-    final palette = _treemapPalette(bt);
+    // Use the Arctic category palette — every entry is saturated mid-dark
+    // enough that pure-white text stays readable.
+    final palette = bt.categoryColors;
+
+    final grandTotal =
+        raw.fold<double>(0, (a, n) => a + (n['value'] as num).toDouble());
 
     return LayoutBuilder(
       builder: (_, c) {
@@ -42,57 +44,13 @@ class TreemapWidgetBody extends StatelessWidget {
             for (var i = 0; i < rects.length; i++)
               Positioned.fromRect(
                 rect: rects[i].$2,
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: palette[i % palette.length],
-                    border: Border.all(color: bt.surface, width: 2),
-                  ),
-                  padding: const EdgeInsets.all(6),
-                  child: rects[i].$2.height < 32 || rects[i].$2.width < 56
-                      ? const SizedBox.shrink()
-                      : DefaultTextStyle(
-                          // Every palette colour is dark enough that
-                          // pure-white text is legible on it. A soft
-                          // shadow guarantees readability even on the
-                          // lightest entries.
-                          style: TextStyle(
-                            color: Colors.white,
-                            shadows: const [
-                              Shadow(
-                                color: Color(0x66000000),
-                                blurRadius: 2,
-                                offset: Offset(0, 1),
-                              ),
-                            ],
-                          ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                rects[i].$1['label'] as String,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              Text(
-                                '\$${fmtMoneyDecimal(
-                                  (rects[i].$1['value'] as num).toDouble(),
-                                )}',
-                                style: const TextStyle(
-                                  fontSize: 10,
-                                  color: Colors.white,
-                                  fontFeatures: [
-                                    FontFeature.tabularFigures(),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                child: _TreemapTile(
+                  label: rects[i].$1['label'] as String,
+                  value: (rects[i].$1['value'] as num).toDouble(),
+                  total: grandTotal,
+                  color: palette[i % palette.length],
+                  border: bt.glassBorder,
+                  rect: rects[i].$2,
                 ),
               ),
           ],
@@ -101,20 +59,7 @@ class TreemapWidgetBody extends StatelessWidget {
     );
   }
 
-  /// All entries are saturated mid-to-dark colours so pure-white text with
-  /// a soft drop shadow stays readable everywhere.
-  static List<Color> _treemapPalette(BudgetTheme bt) {
-    return [
-      const Color(0xFF2E5C8A), // deep blue
-      const Color(0xFF2E7D53), // bt.pos-aligned green
-      const Color(0xFFB4432F), // bt.neg red
-      const Color(0xFF8A5A2E), // saddle brown
-      const Color(0xFF6C3E8A), // purple
-      const Color(0xFF267C7C), // teal
-      const Color(0xFF9A7A2C), // bt.warn ochre
-      const Color(0xFF3D5749), // forest
-    ];
-  }
+  // ── Tile widget (with hover tooltip) ───────────────────────────────────
 
   /// Simple stripe layout: split the longest side first, take items in
   /// descending order, allocate area proportional to value.
@@ -151,5 +96,102 @@ class TreemapWidgetBody extends StatelessWidget {
       total -= v;
     }
     return out;
+  }
+}
+
+class _TreemapTile extends StatelessWidget {
+  const _TreemapTile({
+    required this.label,
+    required this.value,
+    required this.total,
+    required this.color,
+    required this.border,
+    required this.rect,
+  });
+
+  final String label;
+  final double value;
+  final double total;
+  final Color color;
+  final Color border;
+  final Rect rect;
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = total > 0 ? (value / total) * 100 : 0.0;
+    final tooltip =
+        '$label\n\$${fmtMoneyDecimal(value)}   ${pct.toStringAsFixed(1)}%';
+
+    final tile = Container(
+      decoration: BoxDecoration(
+        color: color,
+        border: Border.all(color: border, width: 2),
+      ),
+      padding: const EdgeInsets.all(6),
+      child: rect.height < 32 || rect.width < 56
+          ? const SizedBox.shrink()
+          : DefaultTextStyle(
+              style: const TextStyle(
+                color: Colors.white,
+                shadows: [
+                  Shadow(
+                    color: Color(0x66000000),
+                    blurRadius: 2,
+                    offset: Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    '\$${fmtMoneyDecimal(value)}',
+                    style: const TextStyle(
+                      fontSize: 10,
+                      color: Colors.white,
+                      fontFeatures: [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+    );
+
+    return Tooltip(
+      message: tooltip,
+      waitDuration: const Duration(milliseconds: 200),
+      preferBelow: false,
+      textStyle: const TextStyle(
+        fontSize: 11,
+        color: Colors.white,
+        height: 1.35,
+        fontFeatures: [FontFeature.tabularFigures()],
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xE6101830),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0x33FFFFFF)),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x55000000),
+            blurRadius: 14,
+            spreadRadius: -2,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      child: tile,
+    );
   }
 }

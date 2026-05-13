@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
+import 'glass.dart';
 
+/// Default presentational card. After the Arctic rework this is a thin
+/// wrapper around [GlassSurface] so every existing call-site inherits the
+/// new frosted-glass look without per-site changes.
 class BudgetCard extends StatelessWidget {
   const BudgetCard({
     super.key,
@@ -11,20 +15,17 @@ class BudgetCard extends StatelessWidget {
 
   final Widget child;
   final EdgeInsetsGeometry? padding;
+  /// Retained for API compatibility — GlassSurface always clips its content
+  /// with a ClipRRect, so this flag is effectively a no-op now.
   final bool clipContent;
 
   @override
   Widget build(BuildContext context) {
-    final bt = context.bt;
-    Widget content = padding != null ? Padding(padding: padding!, child: child) : child;
-    return Container(
-      decoration: BoxDecoration(
-        color: bt.surface,
-        borderRadius: BudgetRadius.cardBR,
-        border: Border.all(color: bt.rule),
-      ),
-      clipBehavior: clipContent ? Clip.antiAlias : Clip.none,
-      child: content,
+    return GlassSurface(
+      tier: GlassTier.t1,
+      radius: 20,
+      padding: padding,
+      child: child,
     );
   }
 }
@@ -37,9 +38,9 @@ class BudgetLabel extends StatelessWidget {
     return Text(
       text.toUpperCase(),
       style: TextStyle(
-        fontSize: 10.5,
-        letterSpacing: 0.12 * 10.5,
-        color: context.bt.ink4,
+        fontSize: 11,
+        letterSpacing: 0.06 * 11,
+        color: context.bt.ink3,
         fontWeight: FontWeight.w500,
       ),
     );
@@ -52,6 +53,6 @@ class BudgetDivider extends StatelessWidget {
   Widget build(BuildContext context) => Divider(
         height: 1,
         thickness: 1,
-        color: context.bt.rule,
+        color: context.bt.glassBorder,
       );
 }

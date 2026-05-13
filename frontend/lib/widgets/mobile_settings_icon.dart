@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import 'cat_icon.dart';
+import 'glass.dart';
 
 /// Top-left profile affordance shared by all three tab headers on mobile.
 /// Replaces the per-screen page title (Categories / Expenses / Insights) —
@@ -18,22 +19,24 @@ class MobileSettingsIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 34,
-        height: 34,
-        decoration: BoxDecoration(
-          color: bt.surface,
-          border: Border.all(color: bt.ruleStrong),
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
-        ),
-        alignment: Alignment.center,
-        child: BudgetIcons.build(
-          'profile',
-          size: 16,
-          strokeWidth: 1.8,
-          color: bt.ink2,
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: GlassSurface(
+          tier: GlassTier.t2,
+          radius: 10,
+          elevated: false,
+          sheen: false,
+          padding: const EdgeInsets.all(9),
+          child: BudgetIcons.build(
+            'profile',
+            size: 16,
+            strokeWidth: 1.6,
+            color: bt.ink2,
+          ),
         ),
       ),
     );

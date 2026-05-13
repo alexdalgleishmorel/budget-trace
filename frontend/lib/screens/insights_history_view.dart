@@ -146,9 +146,9 @@ class _SessionTile extends StatelessWidget {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 6, vertical: 2),
                           decoration: BoxDecoration(
-                            color: bt.surface2,
-                            borderRadius: BorderRadius.circular(4),
-                            border: Border.all(color: bt.rule),
+                            color: bt.glass2,
+                            borderRadius: BorderRadius.circular(999),
+                            border: Border.all(color: bt.glassBorder),
                           ),
                           child: Text(
                             'current',

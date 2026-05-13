@@ -67,6 +67,13 @@ class BarWidgetBody extends StatelessWidget {
                   decoration: BoxDecoration(
                     color: _palette(bt, i),
                     borderRadius: const BorderRadius.all(Radius.circular(4)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _palette(bt, i).withValues(alpha: 0.45),
+                        blurRadius: 10,
+                        spreadRadius: -2,
+                      ),
+                    ],
                   ),
                 ),
               ]),
@@ -78,8 +85,7 @@ class BarWidgetBody extends StatelessWidget {
   }
 
   static Color _palette(BudgetTheme bt, int i) {
-    final p = [bt.ink, bt.pos, bt.warn, bt.neg, bt.ink3];
-    return p[i % p.length];
+    return bt.categoryColors[i % bt.categoryColors.length];
   }
 
   Widget _empty(BudgetTheme bt) => Center(

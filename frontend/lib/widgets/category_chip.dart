@@ -4,6 +4,7 @@ import '../models/budget_category.dart';
 import '../theme/app_theme.dart';
 import '../utils/leaf_categories.dart';
 import 'cat_icon.dart';
+import 'glass.dart';
 
 class CategoryChip extends StatefulWidget {
   const CategoryChip({
@@ -72,39 +73,51 @@ class _CategoryChipState extends State<CategoryChip> {
   Widget build(BuildContext context) {
     final bt = context.bt;
     final unknown = widget.value == null;
+    final inner = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (unknown) ...[
+          BudgetIcons.build('alert',
+              size: 12, strokeWidth: 1.8, color: bt.warn),
+          const SizedBox(width: 6),
+        ],
+        Text(
+          widget.value ?? 'Needs category',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: unknown ? bt.warn : bt.ink2,
+          ),
+        ),
+        const SizedBox(width: 4),
+        BudgetIcons.build('chevron-down', size: 12, strokeWidth: 1.8,
+            color: (unknown ? bt.warn : bt.ink2).withValues(alpha: 0.55)),
+      ],
+    );
+    final body = Container(
+      padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
+      child: inner,
+    );
     return CompositedTransformTarget(
       link: _link,
       child: GestureDetector(
         onTap: () => _openPicker(context),
-        child: Container(
-          padding: const EdgeInsets.fromLTRB(8, 4, 10, 4),
-          decoration: BoxDecoration(
-            color: unknown ? bt.warnBg : bt.surface2,
-            borderRadius: BudgetRadius.chipBR,
-            border: Border.all(color: unknown ? bt.warn : bt.ruleStrong),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (unknown) ...[
-                BudgetIcons.build('alert',
-                    size: 12, strokeWidth: 2.2, color: bt.warn),
-                const SizedBox(width: 6),
-              ],
-              Text(
-                widget.value ?? 'Needs category',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
-                  color: unknown ? bt.warn : bt.ink2,
+        child: unknown
+            ? DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BudgetRadius.chipBR,
+                  color: bt.warnBg,
+                  border: Border.all(color: bt.warn.withValues(alpha: 0.55)),
                 ),
+                child: body,
+              )
+            : GlassSurface(
+                tier: GlassTier.t2,
+                radius: 999,
+                elevated: false,
+                sheen: false,
+                child: body,
               ),
-              const SizedBox(width: 4),
-              BudgetIcons.build('chevron-down', size: 12, strokeWidth: 2,
-                  color: (unknown ? bt.warn : bt.ink2).withValues(alpha: 0.55)),
-            ],
-          ),
-        ),
       ),
     );
   }
@@ -173,64 +186,65 @@ class _PickerOverlayState extends State<_PickerOverlay> {
               onTap: () {},
               child: Material(
                 color: Colors.transparent,
-                child: Container(
+                child: SizedBox(
                   width: 240,
-                  constraints: const BoxConstraints(maxHeight: 340),
-                  decoration: BoxDecoration(
-                    color: widget.bt.surface,
-                    borderRadius: const BorderRadius.all(Radius.circular(14)),
-                    border: Border.all(color: widget.bt.ruleStrong),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x40000000), blurRadius: 24, offset: Offset(0, 8)),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.all(Radius.circular(14)),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _SearchField(
-                          bt: widget.bt,
-                          onChanged: (v) => setState(() => _search = v),
-                        ),
-                        Divider(height: 1, color: widget.bt.rule),
-                        Flexible(
-                          child: SingleChildScrollView(
-                            child: Column(
-                              children: filtered.isEmpty
-                                  ? [_EmptyState(bt: widget.bt)]
-                                  : filtered.map((c) => _PickerRow(
-                                        cat: c,
-                                        bt: widget.bt,
-                                        onTap: () => widget.onSelect(c.path),
-                                      )).toList(),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 340),
+                    child: GlassSurface(
+                      tier: GlassTier.strong,
+                      radius: 14,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          _SearchField(
+                            bt: widget.bt,
+                            onChanged: (v) => setState(() => _search = v),
+                          ),
+                          Divider(height: 1, color: widget.bt.glassBorder),
+                          Flexible(
+                            child: SingleChildScrollView(
+                              child: Column(
+                                children: filtered.isEmpty
+                                    ? [_EmptyState(bt: widget.bt)]
+                                    : filtered
+                                        .map((c) => _PickerRow(
+                                              cat: c,
+                                              bt: widget.bt,
+                                              onTap: () => widget.onSelect(c.path),
+                                            ))
+                                        .toList(),
+                              ),
                             ),
                           ),
-                        ),
-                        Divider(height: 1, color: widget.bt.rule),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                          child: Text.rich(
-                            TextSpan(
-                              style: TextStyle(fontSize: 11.5, color: widget.bt.ink4),
-                              children: [
-                                const TextSpan(text: 'Need a new bucket? Create it in '),
-                                TextSpan(
-                                  text: 'Categories',
-                                  style: TextStyle(
-                                    fontSize: 11.5,
-                                    color: widget.bt.ink2,
-                                    fontWeight: FontWeight.w600,
+                          Divider(height: 1, color: widget.bt.glassBorder),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 8),
+                            child: Text.rich(
+                              TextSpan(
+                                style: TextStyle(
+                                    fontSize: 11.5, color: widget.bt.ink4),
+                                children: [
+                                  const TextSpan(
+                                      text:
+                                          'Need a new bucket? Create it in '),
+                                  TextSpan(
+                                    text: 'Categories',
+                                    style: TextStyle(
+                                      fontSize: 11.5,
+                                      color: widget.bt.ink2,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                    recognizer: _categoriesTap,
                                   ),
-                                  recognizer: _categoriesTap,
-                                ),
-                                const TextSpan(text: '.'),
-                              ],
+                                  const TextSpan(text: '.'),
+                                ],
+                              ),
                             ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

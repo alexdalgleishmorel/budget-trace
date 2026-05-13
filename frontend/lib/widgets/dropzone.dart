@@ -6,6 +6,7 @@ import '../theme/app_theme.dart';
 import 'ai_promo.dart';
 import 'ai_spend_chip.dart';
 import 'cat_icon.dart';
+import 'glass.dart';
 import 'import_progress_modal.dart';
 
 /// Statement upload affordance. Tap → file picker → opens
@@ -92,7 +93,11 @@ class _DropzoneState extends State<Dropzone> {
   Widget build(BuildContext context) {
     final bt = context.bt;
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      // `stretch` so the dropzone (and any AiPromo above it) claim the full
+      // width of their parent. With `start` the GlassSurface's inner Column
+      // shrunk to its intrinsic content width (~250 dp), leaving the
+      // dropzone visibly narrower than the surrounding cards.
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (widget.aiEnabled) ...[
           if (widget.aiSpentUsd > 0)
@@ -118,51 +123,45 @@ class _DropzoneState extends State<Dropzone> {
           onExit: (_) => setState(() => _hovered = false),
           child: GestureDetector(
             onTap: _pickAndUpload,
-            child: AnimatedContainer(
-              duration: const Duration(milliseconds: 200),
-              width: double.infinity,
+            child: GlassSurface(
+              tier: GlassTier.t1,
+              radius: 18,
+              dashedBorder: true,
+              borderOverride:
+                  _hovered ? bt.accent.withValues(alpha: 0.6) : bt.glassBorderStrong,
               padding: EdgeInsets.symmetric(
                 horizontal: widget.compact ? 16 : 20,
                 vertical: widget.compact ? 20 : 28,
               ),
-              decoration: BoxDecoration(
-                color: bt.surface2,
-                borderRadius: const BorderRadius.all(Radius.circular(16)),
-                border: Border.all(
-                  color: _hovered ? bt.ink3 : bt.ruleStrong,
-                  width: 1.5,
-                  style: BorderStyle.solid,
-                ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Container(
-                    width: 44, height: 44,
-                    decoration: BoxDecoration(
-                      color: bt.surface,
-                      borderRadius: const BorderRadius.all(Radius.circular(14)),
-                      border: Border.all(color: bt.ruleStrong),
-                    ),
-                    child: Center(
+              // Center fills both axes inside the GlassSurface's content
+              // slot; without it, the inner Column shrinks to its widest
+              // child and Stack pins that block to its top-start anchor,
+              // making the icon + title sit visibly left of centre.
+              child: Center(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    GradientIconTile(
+                      size: 48,
+                      radius: 14,
                       child: BudgetIcons.build('upload',
-                          size: 20, strokeWidth: 1.8, color: bt.ink2),
+                          size: 20, strokeWidth: 1.8, color: Colors.white),
                     ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Drop a statement',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: bt.ink),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    widget.aiEnabled
-                        ? 'CSV, PDF, or image — parsed by AI'
-                        : 'CSV — date, merchant, amount columns',
-                    style: TextStyle(fontSize: 12, color: bt.ink4),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
+                    const SizedBox(height: 10),
+                    Text(
+                      'Drop a statement',
+                      style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: bt.ink),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      widget.aiEnabled
+                          ? 'CSV, PDF, or image — parsed by AI'
+                          : 'CSV — date, merchant, amount columns',
+                      style: TextStyle(fontSize: 12, color: bt.ink3),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),

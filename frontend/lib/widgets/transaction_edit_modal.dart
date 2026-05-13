@@ -4,6 +4,7 @@ import '../models/transaction.dart';
 import '../theme/app_theme.dart';
 import '../utils/leaf_categories.dart';
 import 'cat_icon.dart';
+import 'glass.dart';
 
 /// Edit dialog for a single transaction. Allows renaming the merchant
 /// (which the parent applies to every transaction sharing that exact name),
@@ -25,7 +26,7 @@ class TransactionEditModal extends StatefulWidget {
   }) {
     return showDialog(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
+      barrierColor: const Color(0x8C080614),
       builder: (_) => TransactionEditModal._(
         transaction: transaction,
         root: root,
@@ -123,10 +124,9 @@ class _TransactionEditModalState extends State<TransactionEditModal> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 32),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
-        child: Material(
-          color: bt.surface,
-          borderRadius: const BorderRadius.all(Radius.circular(18)),
-          clipBehavior: Clip.antiAlias,
+        child: GlassSurface(
+          tier: GlassTier.strong,
+          radius: 24,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -134,7 +134,7 @@ class _TransactionEditModalState extends State<TransactionEditModal> {
               Container(
                 padding: const EdgeInsets.fromLTRB(22, 18, 14, 14),
                 decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: bt.rule)),
+                  border: Border(bottom: BorderSide(color: bt.glassBorder)),
                 ),
                 child: Row(
                   children: [
@@ -444,25 +444,11 @@ class _GhostButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onTap == null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Opacity(
-        opacity: disabled ? 0.4 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: bt.surface,
-            border: Border.all(color: bt.ruleStrong),
-            borderRadius: const BorderRadius.all(Radius.circular(10)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w500, color: bt.ink2),
-          ),
-        ),
-      ),
+    return GlassButton(
+      label: label,
+      onPressed: onTap,
+      variant: GlassButtonVariant.secondary,
+      compact: true,
     );
   }
 }
@@ -475,24 +461,11 @@ class _PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onTap == null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Opacity(
-        opacity: disabled ? 0.4 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: bt.ink,
-            borderRadius: const BorderRadius.all(Radius.circular(10)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w500, color: bt.bg),
-          ),
-        ),
-      ),
+    return GlassButton(
+      label: label,
+      onPressed: onTap,
+      variant: GlassButtonVariant.primary,
+      compact: true,
     );
   }
 }

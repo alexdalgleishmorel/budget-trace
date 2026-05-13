@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../models/dashboard.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/format.dart';
+import '../glass.dart';
 
 /// Big-number widget. Shows the headline value vertically centred, with an
 /// optional delta chip below versus a comparison period. No chart —
@@ -33,28 +34,30 @@ class QueryValueWidgetBody extends StatelessWidget {
         children: [
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: Text.rich(
-              TextSpan(children: [
-                TextSpan(
-                  text: _formatValue(value, fmt),
-                  style: TextStyle(
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                GradientText(
+                  _formatValue(value, fmt),
+                  style: const TextStyle(
                     fontSize: 36,
                     fontWeight: FontWeight.w600,
                     letterSpacing: -0.4,
-                    color: bt.ink,
+                    fontFeatures: [FontFeature.tabularFigures()],
                   ),
                 ),
                 if (unit != null && unit.isNotEmpty)
-                  TextSpan(
-                    text: ' / $unit',
+                  Text(
+                    ' / $unit',
                     style: TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.w500,
                       color: bt.ink4,
                     ),
                   ),
-              ]),
-              maxLines: 1,
+              ],
             ),
           ),
           if (comparison != null) ...[

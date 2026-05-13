@@ -6,7 +6,7 @@ import 'package:flutter/material.dart';
 class BudgetIcons {
   static const _paths = <String, String>{
     'plan':    'M3 3h8v12H3zM13 3h8v7h-8zM13 12h8v9h-8zM3 17h8v4H3z',
-    'grid':    'M3 3h8v8H3zM13 3h8v8h-8zM3 13h8v8H3zM13 13h8v8h-8z',
+    'grid':    'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h6v6h-6z',
     'expenses':'M4 5h16M4 12h16M4 19h10',
     'results': 'M3 3v18h18M7 16l4-5 3 3 5-7',
     'insights':'M12 3a9 9 0 1 1 0 18A9 9 0 0 1 12 3zM12 7v5l3 2',
@@ -50,10 +50,22 @@ class BudgetIcons {
     'moon': 'M21 13A9 9 0 0 1 11 3a7 7 0 1 0 10 10z',
     // Lucide-style user/profile silhouette: round head + shoulders arc.
     'profile': 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8z M5 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2',
+    // ── New (Arctic chrome) ─────────────────────────────────────────────
+    'drag':     '', // 6-dot grid drawn as fill circles below
+    'bell':     'M6 9a6 6 0 0 1 12 0c0 6 3 8 3 8H3s3-2 3-8 M10 21a2 2 0 0 0 4 0',
+    'inbox':    'M3 13h6l1 2h4l1-2h6 M5 5h14l2 8v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6z',
+    'folder':   'M3 7a2 2 0 0 1 2-2h4l2 3h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z',
+    'settings': 'M12 3l1.5 2.5 2.8.4 1 2.6-1.6 2.4 1.6 2.4-1 2.6-2.8.4L12 18.5l-1.5-2.5-2.8-.4-1-2.6 1.6-2.4-1.6-2.4 1-2.6 2.8-.4z',
+    'history':  'M3 12a9 9 0 1 0 3-6.7L3 8 M3 3v5h5 M12 7v5l4 2',
+    'wand':     'M3 21l12-12 M14 4l1.5 1.5 M17 7l1.5 1.5 M14 10l1.5 1.5 M20 14l1.5 1.5',
+    'image':    'M3 3h18v18H3z M21 15l-5-5-11 11',
+    'send':     'M22 2L11 13 M22 2l-7 20-4-9-9-4z',
+    'eye':      'M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z',
+    'eye-off':  'M3 3l18 18 M10.6 6.1A11 11 0 0 1 12 6c6.5 0 10 6 10 6a17 17 0 0 1-3.2 4 M6.1 6.1A17 17 0 0 0 2 12s3.5 7 10 7c1.5 0 2.9-.3 4.2-.8',
   };
 
   // Icons that need extra shapes (circles, rects not expressible in a single path)
-  static Widget build(String name, {double size = 20, double strokeWidth = 1.75, Color? color}) {
+  static Widget build(String name, {double size = 20, double strokeWidth = 1.6, Color? color}) {
     return _BudgetIconWidget(name: name, size: size, strokeWidth: strokeWidth, color: color);
   }
 
@@ -71,7 +83,7 @@ class BudgetIcons {
   static String iconKey(String categoryName) =>
       _catMap[categoryName] ?? 'question';
 
-  static Widget forCategory(String name, {double size = 20, double strokeWidth = 1.75, Color? color}) =>
+  static Widget forCategory(String name, {double size = 20, double strokeWidth = 1.6, Color? color}) =>
       build(iconKey(name), size: size, strokeWidth: strokeWidth, color: color);
 
   static String? path(String name) => _paths[name];
@@ -123,11 +135,20 @@ class _IconPainter extends CustomPainter {
 
     final pathStr = BudgetIcons.path(name) ?? '';
     if (pathStr.isEmpty) {
-      // 'more' icon: three circles
       final fp = Paint()..color = color..style = PaintingStyle.fill;
-      canvas.drawCircle(const Offset(5, 12), 1, fp);
-      canvas.drawCircle(const Offset(12, 12), 1, fp);
-      canvas.drawCircle(const Offset(19, 12), 1, fp);
+      if (name == 'drag') {
+        // 6-dot 2×3 grid (drag handle)
+        for (final x in const [9.0, 15.0]) {
+          for (final y in const [6.0, 12.0, 18.0]) {
+            canvas.drawCircle(Offset(x, y), 1.2, fp);
+          }
+        }
+      } else {
+        // 'more' icon: three horizontal dots
+        canvas.drawCircle(const Offset(5, 12), 1, fp);
+        canvas.drawCircle(const Offset(12, 12), 1, fp);
+        canvas.drawCircle(const Offset(19, 12), 1, fp);
+      }
       return;
     }
 
@@ -151,6 +172,12 @@ class _IconPainter extends CustomPainter {
       // Already handled by path
     } else if (name == 'insights') {
       canvas.drawCircle(const Offset(12, 12), 9, paint);
+    } else if (name == 'image') {
+      // Inner "photo dot" circle
+      canvas.drawCircle(const Offset(9, 9), 2, paint);
+    } else if (name == 'eye') {
+      // Pupil circle (kept separate so the lid outline reads as a leaf).
+      canvas.drawCircle(const Offset(12, 12), 3, paint);
     }
 
     // Fill dots

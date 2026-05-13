@@ -58,25 +58,17 @@ class _BudgetTraceAppState extends State<BudgetTraceApp> {
     }
   }
 
-  ThemeMode _themeMode() {
-    switch (_me.theme) {
-      case 'dark':
-        return ThemeMode.dark;
-      case 'light':
-        return ThemeMode.light;
-      default:
-        return ThemeMode.system;
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Budget Trace',
+      title: 'Expense Visualizer',
       debugShowCheckedModeBanner: false,
-      theme: buildTheme(Brightness.light),
-      darkTheme: buildTheme(Brightness.dark),
-      themeMode: _themeMode(),
+      // App is dark-only — the bundle's Arctic light variant was retired in
+      // favour of a single, opinionated dark identity. `theme` is the dark
+      // theme and `themeMode` is forced to dark so the system preference
+      // can't flip us into a non-existent light scheme.
+      theme: buildTheme(),
+      themeMode: ThemeMode.dark,
       home: AppShell(
         me: _me,
         meClient: _meClient,

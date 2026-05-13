@@ -1,72 +1,105 @@
 import 'package:flutter/material.dart';
 
-// ── Design tokens from tokens.css ───────────────────────────────────────────
+// ── Design tokens — Expense Visualizer (Arctic palette, dark-only) ───────────
+//
+// The app ships a single, opinionated dark theme. The bundle's Arctic light
+// variant was retired — the entire visual language (glass surfaces, sheen
+// overlays, accent gradients) is calibrated for a deep-sky backdrop and the
+// extra mode wasn't paying for its complexity.
 
 class BudgetColors {
-  // Light palette
-  static const bgLight = Color(0xFFF6F3EC);
-  static const bg2Light = Color(0xFFF0ECE2);
-  static const surfaceLight = Color(0xFFFFFFFF);
-  static const surface2Light = Color(0xFFFAF8F2);
-  static const inkLight = Color(0xFF121110);
-  static const ink2Light = Color(0xFF2C2A26);
-  static const ink3Light = Color(0xFF5C5851);
-  static const ink4Light = Color(0xFF8C877D);
-  static const ink5Light = Color(0xFFB5B0A5);
-  static const ruleLight = Color(0x14121110); // 8% opacity
-  static const ruleStrongLight = Color(0x24121110); // 14%
-  static const ruleSoftLight = Color(0x0D121110); // 5%
-  static const posLight = Color(0xFF2E7D53);
-  static const posBgLight = Color(0x142E7D53);
-  static const posBorderLight = Color(0x332E7D53);
-  static const negLight = Color(0xFFB4432F);
-  static const negBgLight = Color(0x14B4432F);
-  static const negBorderLight = Color(0x38B4432F);
-  static const warnLight = Color(0xFF9A7A2C);
-  static const warnBgLight = Color(0x1A9A7A2C);
-  static const tile1Light = Color(0xFFECE8DE);
-  static const tile2Light = Color(0xFFE2DED3);
-  static const tile3Light = Color(0xFFD6D2C6);
-  static const tile4Light = Color(0xFFC8C4B7);
-  static const tile5Light = Color(0xFFB9B6A8);
-  static const tileInkLight = Color(0xFF1A1815);
-  static const tileInk2Light = Color(0xFF4A463D);
+  // ── Arctic dark palette ───────────────────────────────────────────────────
 
-  // Dark palette
-  static const bgDark = Color(0xFF0C0B09);
-  static const bg2Dark = Color(0xFF13120F);
-  static const surfaceDark = Color(0xFF17150F);
-  static const surface2Dark = Color(0xFF1D1B14);
-  static const inkDark = Color(0xFFF0ECE2);
-  static const ink2Dark = Color(0xFFD9D4C6);
-  static const ink3Dark = Color(0xFFA49E8E);
-  static const ink4Dark = Color(0xFF76715F);
-  static const ink5Dark = Color(0xFF4F4A3E);
-  static const ruleDark = Color(0x14F0ECE2);
-  static const ruleStrongDark = Color(0x24F0ECE2);
-  static const ruleSoftDark = Color(0x0AF0ECE2);
-  static const posDark = Color(0xFF6FBE8E);
-  static const posBgDark = Color(0x1A6FBE8E);
-  static const posBorderDark = Color(0x476FBE8E);
-  static const negDark = Color(0xFFE0826D);
-  static const negBgDark = Color(0x1AE0826D);
-  static const negBorderDark = Color(0x47E0826D);
-  static const warnDark = Color(0xFFD4B26A);
-  static const warnBgDark = Color(0x1FD4B26A);
-  static const tile1Dark = Color(0xFF1F1D16);
-  static const tile2Dark = Color(0xFF26231B);
-  static const tile3Dark = Color(0xFF2E2B22);
-  static const tile4Dark = Color(0xFF383428);
-  static const tile5Dark = Color(0xFF423D2F);
-  static const tileInkDark = Color(0xFFF0ECE2);
-  static const tileInk2Dark = Color(0xFFB5B0A0);
+  static const bg = Color(0xFF060D18);
+  static const bg2 = Color(0xFF163A4A);
+  static const surface = Color.fromRGBO(220, 235, 250, 0.07); // = glass1
+  static const surface2 = Color.fromRGBO(220, 235, 250, 0.12); // = glass2
+  static const ink = Color.fromRGBO(245, 250, 255, 0.96);
+  static const ink2 = Color.fromRGBO(245, 250, 255, 0.72);
+  static const ink3 = Color.fromRGBO(245, 250, 255, 0.52);
+  static const ink4 = Color.fromRGBO(245, 250, 255, 0.34);
+  static const ink5 = Color.fromRGBO(245, 250, 255, 0.18);
+  static const rule = Color.fromRGBO(220, 235, 250, 0.20);
+  static const ruleStrong = Color.fromRGBO(220, 235, 250, 0.30);
+  static const ruleSoft = Color.fromRGBO(220, 235, 250, 0.10);
+  static const pos = Color(0xFF10B981);
+  static const posBg = Color.fromRGBO(16, 185, 129, 0.18);
+  static const posBorder = Color.fromRGBO(16, 185, 129, 0.50);
+  static const neg = Color(0xFFF43F5E);
+  static const negBg = Color.fromRGBO(244, 63, 94, 0.18);
+  static const negBorder = Color.fromRGBO(244, 63, 94, 0.35);
+  static const warn = Color(0xFFF59E0B);
+  static const warnBg = Color.fromRGBO(245, 158, 11, 0.18);
+  // First 5 hues of the 12-color category palette (used by widget bodies and
+  // the legacy tile API). Saturated hues — text uses white.
+  static const tile1 = Color(0xFF10B981);
+  static const tile2 = Color(0xFF06B6D4);
+  static const tile3 = Color(0xFF3B82F6);
+  static const tile4 = Color(0xFF8B5CF6);
+  static const tile5 = Color(0xFFD946EF);
+  static const tileInk = Color(0xFFFFFFFF);
+  static const tileInk2 = Color.fromRGBO(255, 255, 255, 0.72);
+
+  // Glass / chrome / accent
+  static const glass1 = Color.fromRGBO(220, 235, 250, 0.07);
+  static const glass2 = Color.fromRGBO(220, 235, 250, 0.12);
+  static const glass3 = Color.fromRGBO(220, 235, 250, 0.17);
+  static const glassBorder = Color.fromRGBO(220, 235, 250, 0.20);
+  static const glassBorderStrong = Color.fromRGBO(220, 235, 250, 0.30);
+  static const glassHighlight = Color.fromRGBO(230, 245, 255, 0.32);
+  static const fieldBg = Color.fromRGBO(220, 235, 250, 0.06);
+  static const fieldBorder = Color.fromRGBO(220, 235, 250, 0.20);
+  static const accent = Color(0xFF0EA5E9);
+  static const accent2 = Color(0xFF06B6D4);
+  static const bgVeilA = Color.fromRGBO(14, 165, 233, 0.14);
+  static const bgVeilB = Color.fromRGBO(6, 182, 212, 0.12);
+  static const glassShadow = BoxShadow(
+    color: Color.fromRGBO(0, 20, 35, 0.55),
+    offset: Offset(0, 30),
+    blurRadius: 60,
+    spreadRadius: -20,
+  );
+
+  static const bgGrad = <Color>[
+    Color(0xFF060D18),
+    Color(0xFF0C1A2B),
+    Color(0xFF112942),
+    Color(0xFF163A4A),
+  ];
+  // Primary-button / chip-active gradient. Pitched darker than the bundle's
+  // 700-level stops so the button reads as accent without dominating the
+  // page — Tailwind 800-level sky/cyan/teal at ~27% lightness, paired with
+  // a softer outer halo over in GlassButton._primaryBody.
+  static const accentGrad = <Color>[
+    Color(0xFF075985), // sky-800
+    Color(0xFF155E75), // cyan-800
+    Color(0xFF115E59), // teal-800
+  ];
+
+  /// 12-color category palette from the design bundle. Used as solid swatches
+  /// on dark surfaces — white text always wins.
+  static const categoryPalette = <Color>[
+    Color(0xFF10B981), // emerald
+    Color(0xFF06B6D4), // cyan
+    Color(0xFF3B82F6), // blue
+    Color(0xFF8B5CF6), // violet
+    Color(0xFFD946EF), // fuchsia
+    Color(0xFFEC4899), // pink
+    Color(0xFFF43F5E), // rose
+    Color(0xFFF59E0B), // amber
+    Color(0xFFEAB308), // yellow
+    Color(0xFF84CC16), // lime
+    Color(0xFF14B8A6), // teal
+    Color(0xFF6366F1), // indigo
+  ];
+
+  static const bgGradStops = <double>[0.0, 0.35, 0.70, 1.0];
+  static const accentGradStops = <double>[0.0, 0.55, 1.0];
 }
 
 /// Curated palette for category tiles. Keys are stored verbatim in the
 /// database (single source of truth in `backend/.../category_palette.py`);
-/// the frontend resolves each key to a light- or dark-mode color based on
-/// the active theme. Foreground text on a category tile uses `bt.tileInk`
-/// (designed for high contrast on any tile bg in either mode).
+/// the frontend resolves each key to one of the bundle's 12 category hues.
 class CategoryPalette {
   static const String defaultKey = 'stone';
 
@@ -88,47 +121,29 @@ class CategoryPalette {
     'graphite',
   ];
 
-  static const Map<String, Color> _light = {
-    'sage':     Color(0xFFC7D4B8),
-    'moss':     Color(0xFFA8BFA0),
-    'olive':    Color(0xFFC8C28A),
-    'ochre':    Color(0xFFE5CD8A),
-    'sand':     Color(0xFFE5D5B0),
-    'cream':    Color(0xFFECE0C5),
-    'clay':     Color(0xFFE0B197),
-    'rose':     Color(0xFFE5B8B0),
-    'plum':     Color(0xFFC8A8C0),
-    'lavender': Color(0xFFB8B0CC),
-    'sky':      Color(0xFFB0C5D4),
-    'teal':     Color(0xFFA5C5BD),
-    'stone':    Color(0xFFC8C5BC),
-    'graphite': Color(0xFFA8A59C),
+  static const Map<String, Color> _palette = {
+    'sage':     Color(0xFF10B981), // emerald (cat-1)
+    'moss':     Color(0xFF84CC16), // lime (cat-10)
+    'olive':    Color(0xFFEAB308), // yellow (cat-9)
+    'ochre':    Color(0xFFF59E0B), // amber (cat-8)
+    'sand':     Color(0xFFFBBF24), // lighter amber
+    'cream':    Color(0xFFFCD34D), // soft yellow
+    'clay':     Color(0xFFF43F5E), // rose (cat-7)
+    'rose':     Color(0xFFEC4899), // pink (cat-6)
+    'plum':     Color(0xFFD946EF), // fuchsia (cat-5)
+    'lavender': Color(0xFF8B5CF6), // violet (cat-4)
+    'sky':      Color(0xFF06B6D4), // cyan (cat-2)
+    'teal':     Color(0xFF14B8A6), // teal (cat-11)
+    'stone':    Color(0xFF6366F1), // indigo (cat-12)
+    'graphite': Color(0xFF3B82F6), // blue (cat-3)
   };
 
-  static const Map<String, Color> _dark = {
-    'sage':     Color(0xFF364030),
-    'moss':     Color(0xFF2A3F2C),
-    'olive':    Color(0xFF383520),
-    'ochre':    Color(0xFF4A3F1F),
-    'sand':     Color(0xFF423824),
-    'cream':    Color(0xFF423D2A),
-    'clay':     Color(0xFF4A2F22),
-    'rose':     Color(0xFF4A2D2A),
-    'plum':     Color(0xFF3D2A35),
-    'lavender': Color(0xFF2D2A3D),
-    'sky':      Color(0xFF243038),
-    'teal':     Color(0xFF1F3833),
-    'stone':    Color(0xFF2D2B22),
-    'graphite': Color(0xFF38362E),
-  };
-
-  static Color resolve(String key, Brightness brightness) {
-    final map = brightness == Brightness.dark ? _dark : _light;
-    return map[key] ?? map[defaultKey]!;
-  }
+  static Color resolve(String key) =>
+      _palette[key] ?? _palette[defaultKey]!;
 }
 
 class BudgetRadius {
+  // Existing
   static const card = Radius.circular(20);
   static const tile = Radius.circular(18);
   static const btn = Radius.circular(12);
@@ -136,12 +151,24 @@ class BudgetRadius {
   static const chip = Radius.circular(999);
   static const sm = Radius.circular(8);
 
+  // New (Arctic) — bundle scale
+  static const xs = Radius.circular(8);
+  static const md = Radius.circular(16);
+  static const lg = Radius.circular(20); // alias of card
+  static const xl = Radius.circular(24); // modal shells
+  static const pill = Radius.circular(999); // alias of chip
+
   static const cardBR = BorderRadius.all(card);
   static const tileBR = BorderRadius.all(tile);
   static const btnBR = BorderRadius.all(btn);
   static const inputBR = BorderRadius.all(input);
   static const chipBR = BorderRadius.all(chip);
   static const smBR = BorderRadius.all(sm);
+  static const xsBR = BorderRadius.all(xs);
+  static const mdBR = BorderRadius.all(md);
+  static const lgBR = BorderRadius.all(lg);
+  static const xlBR = BorderRadius.all(xl);
+  static const pillBR = BorderRadius.all(pill);
 }
 
 // ── ThemeExtension providing semantic colours ────────────────────────────────
@@ -175,6 +202,24 @@ class BudgetTheme extends ThemeExtension<BudgetTheme> {
     required this.tile5,
     required this.tileInk,
     required this.tileInk2,
+    required this.bgGrad,
+    required this.bgGradStops,
+    required this.glass1,
+    required this.glass2,
+    required this.glass3,
+    required this.glassBorder,
+    required this.glassBorderStrong,
+    required this.glassHighlight,
+    required this.glassShadow,
+    required this.fieldBg,
+    required this.fieldBorder,
+    required this.accent,
+    required this.accent2,
+    required this.accentGrad,
+    required this.accentGradStops,
+    required this.categoryColors,
+    required this.bgVeilA,
+    required this.bgVeilB,
   });
 
   final Color bg;
@@ -205,66 +250,77 @@ class BudgetTheme extends ThemeExtension<BudgetTheme> {
   final Color tileInk;
   final Color tileInk2;
 
+  final List<Color> bgGrad;
+  final List<double> bgGradStops;
+  final Color glass1;
+  final Color glass2;
+  final Color glass3;
+  final Color glassBorder;
+  final Color glassBorderStrong;
+  final Color glassHighlight;
+  final BoxShadow glassShadow;
+  final Color fieldBg;
+  final Color fieldBorder;
+  final Color accent;
+  final Color accent2;
+  final List<Color> accentGrad;
+  final List<double> accentGradStops;
+  final List<Color> categoryColors;
+  final Color bgVeilA;
+  final Color bgVeilB;
+
   List<Color> get tileColors => [tile1, tile2, tile3, tile4, tile5];
 
-  static const light = BudgetTheme(
-    bg: BudgetColors.bgLight,
-    bg2: BudgetColors.bg2Light,
-    surface: BudgetColors.surfaceLight,
-    surface2: BudgetColors.surface2Light,
-    ink: BudgetColors.inkLight,
-    ink2: BudgetColors.ink2Light,
-    ink3: BudgetColors.ink3Light,
-    ink4: BudgetColors.ink4Light,
-    ink5: BudgetColors.ink5Light,
-    rule: BudgetColors.ruleLight,
-    ruleStrong: BudgetColors.ruleStrongLight,
-    ruleSoft: BudgetColors.ruleSoftLight,
-    pos: BudgetColors.posLight,
-    posBg: BudgetColors.posBgLight,
-    posBorder: BudgetColors.posBorderLight,
-    neg: BudgetColors.negLight,
-    negBg: BudgetColors.negBgLight,
-    negBorder: BudgetColors.negBorderLight,
-    warn: BudgetColors.warnLight,
-    warnBg: BudgetColors.warnBgLight,
-    tile1: BudgetColors.tile1Light,
-    tile2: BudgetColors.tile2Light,
-    tile3: BudgetColors.tile3Light,
-    tile4: BudgetColors.tile4Light,
-    tile5: BudgetColors.tile5Light,
-    tileInk: BudgetColors.tileInkLight,
-    tileInk2: BudgetColors.tileInk2Light,
-  );
-
+  /// The one and only theme value. The app is dark-only; this constant is
+  /// what `buildTheme()` registers into `ThemeData.extensions`. Tests can
+  /// reach for it directly when they need to construct a themed
+  /// `MaterialApp` in isolation.
   static const dark = BudgetTheme(
-    bg: BudgetColors.bgDark,
-    bg2: BudgetColors.bg2Dark,
-    surface: BudgetColors.surfaceDark,
-    surface2: BudgetColors.surface2Dark,
-    ink: BudgetColors.inkDark,
-    ink2: BudgetColors.ink2Dark,
-    ink3: BudgetColors.ink3Dark,
-    ink4: BudgetColors.ink4Dark,
-    ink5: BudgetColors.ink5Dark,
-    rule: BudgetColors.ruleDark,
-    ruleStrong: BudgetColors.ruleStrongDark,
-    ruleSoft: BudgetColors.ruleSoftDark,
-    pos: BudgetColors.posDark,
-    posBg: BudgetColors.posBgDark,
-    posBorder: BudgetColors.posBorderDark,
-    neg: BudgetColors.negDark,
-    negBg: BudgetColors.negBgDark,
-    negBorder: BudgetColors.negBorderDark,
-    warn: BudgetColors.warnDark,
-    warnBg: BudgetColors.warnBgDark,
-    tile1: BudgetColors.tile1Dark,
-    tile2: BudgetColors.tile2Dark,
-    tile3: BudgetColors.tile3Dark,
-    tile4: BudgetColors.tile4Dark,
-    tile5: BudgetColors.tile5Dark,
-    tileInk: BudgetColors.tileInkDark,
-    tileInk2: BudgetColors.tileInk2Dark,
+    bg: BudgetColors.bg,
+    bg2: BudgetColors.bg2,
+    surface: BudgetColors.surface,
+    surface2: BudgetColors.surface2,
+    ink: BudgetColors.ink,
+    ink2: BudgetColors.ink2,
+    ink3: BudgetColors.ink3,
+    ink4: BudgetColors.ink4,
+    ink5: BudgetColors.ink5,
+    rule: BudgetColors.rule,
+    ruleStrong: BudgetColors.ruleStrong,
+    ruleSoft: BudgetColors.ruleSoft,
+    pos: BudgetColors.pos,
+    posBg: BudgetColors.posBg,
+    posBorder: BudgetColors.posBorder,
+    neg: BudgetColors.neg,
+    negBg: BudgetColors.negBg,
+    negBorder: BudgetColors.negBorder,
+    warn: BudgetColors.warn,
+    warnBg: BudgetColors.warnBg,
+    tile1: BudgetColors.tile1,
+    tile2: BudgetColors.tile2,
+    tile3: BudgetColors.tile3,
+    tile4: BudgetColors.tile4,
+    tile5: BudgetColors.tile5,
+    tileInk: BudgetColors.tileInk,
+    tileInk2: BudgetColors.tileInk2,
+    bgGrad: BudgetColors.bgGrad,
+    bgGradStops: BudgetColors.bgGradStops,
+    glass1: BudgetColors.glass1,
+    glass2: BudgetColors.glass2,
+    glass3: BudgetColors.glass3,
+    glassBorder: BudgetColors.glassBorder,
+    glassBorderStrong: BudgetColors.glassBorderStrong,
+    glassHighlight: BudgetColors.glassHighlight,
+    glassShadow: BudgetColors.glassShadow,
+    fieldBg: BudgetColors.fieldBg,
+    fieldBorder: BudgetColors.fieldBorder,
+    accent: BudgetColors.accent,
+    accent2: BudgetColors.accent2,
+    accentGrad: BudgetColors.accentGrad,
+    accentGradStops: BudgetColors.accentGradStops,
+    categoryColors: BudgetColors.categoryPalette,
+    bgVeilA: BudgetColors.bgVeilA,
+    bgVeilB: BudgetColors.bgVeilB,
   );
 
   @override
@@ -277,6 +333,15 @@ class BudgetTheme extends ThemeExtension<BudgetTheme> {
     Color? warn, Color? warnBg,
     Color? tile1, Color? tile2, Color? tile3, Color? tile4, Color? tile5,
     Color? tileInk, Color? tileInk2,
+    List<Color>? bgGrad, List<double>? bgGradStops,
+    Color? glass1, Color? glass2, Color? glass3,
+    Color? glassBorder, Color? glassBorderStrong, Color? glassHighlight,
+    BoxShadow? glassShadow,
+    Color? fieldBg, Color? fieldBorder,
+    Color? accent, Color? accent2,
+    List<Color>? accentGrad, List<double>? accentGradStops,
+    List<Color>? categoryColors,
+    Color? bgVeilA, Color? bgVeilB,
   }) => BudgetTheme(
     bg: bg ?? this.bg, bg2: bg2 ?? this.bg2,
     surface: surface ?? this.surface, surface2: surface2 ?? this.surface2,
@@ -289,7 +354,47 @@ class BudgetTheme extends ThemeExtension<BudgetTheme> {
     tile1: tile1 ?? this.tile1, tile2: tile2 ?? this.tile2, tile3: tile3 ?? this.tile3,
     tile4: tile4 ?? this.tile4, tile5: tile5 ?? this.tile5,
     tileInk: tileInk ?? this.tileInk, tileInk2: tileInk2 ?? this.tileInk2,
+    bgGrad: bgGrad ?? this.bgGrad,
+    bgGradStops: bgGradStops ?? this.bgGradStops,
+    glass1: glass1 ?? this.glass1,
+    glass2: glass2 ?? this.glass2,
+    glass3: glass3 ?? this.glass3,
+    glassBorder: glassBorder ?? this.glassBorder,
+    glassBorderStrong: glassBorderStrong ?? this.glassBorderStrong,
+    glassHighlight: glassHighlight ?? this.glassHighlight,
+    glassShadow: glassShadow ?? this.glassShadow,
+    fieldBg: fieldBg ?? this.fieldBg,
+    fieldBorder: fieldBorder ?? this.fieldBorder,
+    accent: accent ?? this.accent,
+    accent2: accent2 ?? this.accent2,
+    accentGrad: accentGrad ?? this.accentGrad,
+    accentGradStops: accentGradStops ?? this.accentGradStops,
+    categoryColors: categoryColors ?? this.categoryColors,
+    bgVeilA: bgVeilA ?? this.bgVeilA,
+    bgVeilB: bgVeilB ?? this.bgVeilB,
   );
+
+  static List<Color> _lerpColorList(List<Color> a, List<Color> b, double t) {
+    final n = a.length;
+    return List<Color>.generate(n, (i) => Color.lerp(a[i], b[i % b.length], t)!);
+  }
+
+  static List<double> _lerpDoubleList(List<double> a, List<double> b, double t) {
+    final n = a.length;
+    return List<double>.generate(n, (i) {
+      final bv = b[i % b.length];
+      return a[i] + (bv - a[i]) * t;
+    });
+  }
+
+  static BoxShadow _lerpShadow(BoxShadow a, BoxShadow b, double t) {
+    return BoxShadow(
+      color: Color.lerp(a.color, b.color, t)!,
+      offset: Offset.lerp(a.offset, b.offset, t)!,
+      blurRadius: a.blurRadius + (b.blurRadius - a.blurRadius) * t,
+      spreadRadius: a.spreadRadius + (b.spreadRadius - a.spreadRadius) * t,
+    );
+  }
 
   @override
   BudgetTheme lerp(BudgetTheme? other, double t) {
@@ -322,31 +427,98 @@ class BudgetTheme extends ThemeExtension<BudgetTheme> {
       tile5: Color.lerp(tile5, other.tile5, t)!,
       tileInk: Color.lerp(tileInk, other.tileInk, t)!,
       tileInk2: Color.lerp(tileInk2, other.tileInk2, t)!,
+      bgGrad: _lerpColorList(bgGrad, other.bgGrad, t),
+      bgGradStops: _lerpDoubleList(bgGradStops, other.bgGradStops, t),
+      glass1: Color.lerp(glass1, other.glass1, t)!,
+      glass2: Color.lerp(glass2, other.glass2, t)!,
+      glass3: Color.lerp(glass3, other.glass3, t)!,
+      glassBorder: Color.lerp(glassBorder, other.glassBorder, t)!,
+      glassBorderStrong: Color.lerp(glassBorderStrong, other.glassBorderStrong, t)!,
+      glassHighlight: Color.lerp(glassHighlight, other.glassHighlight, t)!,
+      glassShadow: _lerpShadow(glassShadow, other.glassShadow, t),
+      fieldBg: Color.lerp(fieldBg, other.fieldBg, t)!,
+      fieldBorder: Color.lerp(fieldBorder, other.fieldBorder, t)!,
+      accent: Color.lerp(accent, other.accent, t)!,
+      accent2: Color.lerp(accent2, other.accent2, t)!,
+      accentGrad: _lerpColorList(accentGrad, other.accentGrad, t),
+      accentGradStops: _lerpDoubleList(accentGradStops, other.accentGradStops, t),
+      categoryColors: _lerpColorList(categoryColors, other.categoryColors, t),
+      bgVeilA: Color.lerp(bgVeilA, other.bgVeilA, t)!,
+      bgVeilB: Color.lerp(bgVeilB, other.bgVeilB, t)!,
     );
   }
 }
 
-// ── ThemeData factories ───────────────────────────────────────────────────────
+// ── ThemeData factory ────────────────────────────────────────────────────────
 
-ThemeData buildTheme(Brightness brightness) {
-  final bt = brightness == Brightness.light ? BudgetTheme.light : BudgetTheme.dark;
+/// Builds the dark `ThemeData` used app-wide. The light variant was retired —
+/// `MaterialApp` is wired with `theme: buildTheme()` and `themeMode: dark`.
+ThemeData buildTheme() {
+  const bt = BudgetTheme.dark;
   return ThemeData(
-    brightness: brightness,
-    scaffoldBackgroundColor: bt.bg,
-    colorScheme: ColorScheme(
-      brightness: brightness,
-      primary: bt.ink,
-      onPrimary: bt.bg,
-      secondary: bt.ink3,
-      onSecondary: bt.bg,
-      error: bt.neg,
-      onError: bt.bg,
-      surface: bt.surface,
-      onSurface: bt.ink,
+    brightness: Brightness.dark,
+    // Scaffold bg is transparent — AppBackground (in widgets/glass.dart)
+    // paints the page gradient + veil orbs at the AppShell root.
+    scaffoldBackgroundColor: Colors.transparent,
+    colorScheme: const ColorScheme(
+      brightness: Brightness.dark,
+      primary: BudgetColors.accent,
+      onPrimary: Colors.white,
+      secondary: BudgetColors.accent2,
+      onSecondary: Colors.white,
+      error: BudgetColors.neg,
+      onError: Colors.white,
+      surface: BudgetColors.surface,
+      onSurface: BudgetColors.ink,
     ),
     fontFamily: 'SF Pro Text',
+    fontFamilyFallback: const ['SF Pro Display', 'Inter', 'system-ui'],
     useMaterial3: true,
-    extensions: [bt],
+    // `surface` above is the translucent glass-1 token, which Material's
+    // AlertDialog uses for its default fill — that left dialogs reading
+    // as see-through against the page gradient. Pin AlertDialog (and the
+    // material PopupMenu / BottomSheet shells) to an opaque deep-navy so
+    // they pop against the gradient.
+    dialogTheme: DialogThemeData(
+      backgroundColor: BudgetColors.bgGrad[1], // #0C1A2B — deeper than bg
+      surfaceTintColor: Colors.transparent,
+      elevation: 12,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(18)),
+      ),
+      titleTextStyle: TextStyle(
+        fontSize: 16,
+        fontWeight: FontWeight.w600,
+        color: BudgetColors.ink,
+      ),
+      contentTextStyle: const TextStyle(
+        fontSize: 13,
+        color: BudgetColors.ink2,
+        height: 1.45,
+      ),
+    ),
+    bottomSheetTheme: const BottomSheetThemeData(
+      backgroundColor: BudgetColors.bg,
+      surfaceTintColor: Colors.transparent,
+    ),
+    // PopupMenuButton (the dashboard's time-range picker, anywhere using
+    // Material's `showMenu`) defaults to `ColorScheme.surface` — same
+    // translucent glass-1 issue as AlertDialog. Pin it to an opaque
+    // deep-navy with a soft border so the menu pops against the page.
+    popupMenuTheme: PopupMenuThemeData(
+      color: BudgetColors.bgGrad[1],
+      surfaceTintColor: Colors.transparent,
+      elevation: 12,
+      textStyle: const TextStyle(
+        fontSize: 13,
+        color: BudgetColors.ink,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: const BorderRadius.all(Radius.circular(12)),
+        side: BorderSide(color: BudgetColors.glassBorderStrong),
+      ),
+    ),
+    extensions: const [bt],
   );
 }
 
@@ -355,9 +527,6 @@ ThemeData buildTheme(Brightness brightness) {
 extension BudgetThemeContext on BuildContext {
   BudgetTheme get bt => Theme.of(this).extension<BudgetTheme>()!;
 
-  /// Resolve a category palette key to a tile background color appropriate
-  /// for the active theme (`Brightness.dark` ↔ deep variant, otherwise the
-  /// light variant). Unknown keys fall back to the default.
-  Color categoryBg(String key) =>
-      CategoryPalette.resolve(key, Theme.of(this).brightness);
+  /// Resolve a category palette key to a tile background color.
+  Color categoryBg(String key) => CategoryPalette.resolve(key);
 }
