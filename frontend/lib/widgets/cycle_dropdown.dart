@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import 'cat_icon.dart';
+import 'glass.dart';
 
 /// Cycle picker shared between the desktop side nav and the mobile screen headers.
 class CycleDropdown extends StatefulWidget {
@@ -63,22 +64,11 @@ class _CycleDropdownState extends State<CycleDropdown> {
                 onTap: () {},
                 child: Material(
                   color: Colors.transparent,
-                  child: Container(
+                  child: SizedBox(
                     width: widget.popupWidth,
-                    decoration: BoxDecoration(
-                      color: bt.surface,
-                      borderRadius: const BorderRadius.all(Radius.circular(12)),
-                      border: Border.all(color: bt.ruleStrong),
-                      boxShadow: [
-                        BoxShadow(
-                          color: const Color(0x40000000),
-                          blurRadius: 20,
-                          offset: Offset(0, widget.openAbove ? -8 : 8),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: const BorderRadius.all(Radius.circular(12)),
+                    child: GlassSurface(
+                      tier: GlassTier.strong,
+                      radius: 14,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: widget.options.reversed.map((opt) {
@@ -91,11 +81,11 @@ class _CycleDropdownState extends State<CycleDropdown> {
                               child: Row(children: [
                                 Expanded(child: Text(opt, style: TextStyle(
                                   fontSize: 13,
-                                  fontWeight: active ? FontWeight.w500 : FontWeight.w400,
+                                  fontWeight: active ? FontWeight.w600 : FontWeight.w400,
                                   color: active ? bt.ink : bt.ink2,
                                 ))),
                                 if (active)
-                                  BudgetIcons.build('check', size: 13, strokeWidth: 2, color: bt.ink),
+                                  BudgetIcons.build('check', size: 13, strokeWidth: 1.6, color: bt.accent),
                               ]),
                             ),
                           );
@@ -134,16 +124,16 @@ class _CycleDropdownState extends State<CycleDropdown> {
         child: Container(
           padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
           decoration: BoxDecoration(
-            color: open ? bt.surface2 : bt.surface,
-            borderRadius: const BorderRadius.all(Radius.circular(9)),
-            border: Border.all(color: bt.ruleStrong),
+            color: bt.fieldBg,
+            borderRadius: const BorderRadius.all(Radius.circular(10)),
+            border: Border.all(color: open ? bt.accent.withValues(alpha: 0.45) : bt.fieldBorder),
           ),
           child: Row(
             mainAxisSize: widget.expand ? MainAxisSize.max : MainAxisSize.min,
             children: [
               if (widget.expand) Expanded(child: label) else label,
               const SizedBox(width: 6),
-              BudgetIcons.build('chevron-down', size: 13, strokeWidth: 2, color: bt.ink3),
+              BudgetIcons.build('chevron-down', size: 13, strokeWidth: 1.6, color: bt.ink3),
             ],
           ),
         ),

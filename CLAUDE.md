@@ -2,6 +2,13 @@
 
 Guidance for Claude Code working in this repository.
 
+The user-facing brand of this app is **Expense Visualizer**. Internal
+package names (`budget_trace_backend`, the `budget_trace` Dart package,
+the repo folder, the `BUDGET_TRACE_FEATURES` env var, the
+`BudgetTrace*`/`BudgetTheme`/`BudgetCard` etc. Dart symbols) keep the
+legacy `budget_trace` identifier — only user-visible UI strings carry
+the new name.
+
 ## Read this first
 
 The architecture is documented in [`docs/`](docs/README.md). Before changing anything substantive, read the doc that matches your task:
@@ -11,9 +18,9 @@ The architecture is documented in [`docs/`](docs/README.md). Before changing any
 - CSV upload, AI parser, auto-categorize, dedupe → [`docs/upload.md`](docs/upload.md)
 - Touching the AI chat loop, MCP tools (read + write), prompt, or `WidgetSpec` shape → [`docs/insights-ai.md`](docs/insights-ai.md)
 - Dashboards, widgets, metric registry, saved insights, drag/resize → [`docs/widgets.md`](docs/widgets.md)
-- The `/me` settings surface — feature flags, API key, theme, auth-TODO → [`docs/account.md`](docs/account.md)
+- The `/me` settings surface — feature flags, API key, auth-TODO → [`docs/account.md`](docs/account.md)
 - Anything in `backend/` → [`docs/backend.md`](docs/backend.md)
-- Anything in `frontend/` → [`docs/frontend.md`](docs/frontend.md)
+- Anything in `frontend/` (visual layer, glass primitives, service clients) → [`docs/frontend.md`](docs/frontend.md)
 - Schema or seed → [`docs/data-model.md`](docs/data-model.md)
 - Things easy to get wrong (date formats, path strings, JSON casing, feature flags) → [`docs/conventions.md`](docs/conventions.md)
 
@@ -53,11 +60,12 @@ An AI provider API key is needed for any AI surface (chat, PDF/AI parser, auto-c
 ## Frontend architecture (quick reference)
 
 - **Responsive layout.** Every screen uses `LayoutBuilder` at a **600 dp breakpoint**; private `_MobileXxx` / `_DesktopXxx` widget classes per file.
-- **Shell.** `AppShell` ([frontend/lib/widgets/app_shell.dart](frontend/lib/widgets/app_shell.dart)) owns the mutable category root and transaction list, threads them down to Categories and Expenses. The Widgets and Insights tabs are self-contained — they talk directly to the backend. The top-level `BudgetTraceApp` ([frontend/lib/main.dart](frontend/lib/main.dart)) owns the `Me` state (features + theme + key-set bool + `last_dashboard_id` from `GET /me`) and rebuilds `MaterialApp` on theme change. Tab indices are stable across the app: `0=Categories, 1=Expenses, 2=Widgets, 3=Insights`. Widgets is filtered out of the nav lists when `me.features.widgets` is off.
-- **Theming.** `BudgetTheme` is a `ThemeExtension`; reach it via `context.bt`. Semantic colours: `ink`/`ink2`-`ink5`, `bg`/`surface`/`surface2`, `pos`/`neg`/`warn`/`warnBg`, `rule`/`ruleStrong`. Never use raw `Colors.*` for visible UI.
-- **Icons.** `BudgetIcons` ([frontend/lib/widgets/cat_icon.dart](frontend/lib/widgets/cat_icon.dart)) — Lucide-style SVG paths via a custom `CustomPainter`. Use `BudgetIcons.build(key, size, strokeWidth, color)`. Categories no longer carry icons in the UI.
-- **Generic chart.** [`TimeseriesChart`](frontend/lib/widgets/timeseries_chart.dart) — multi-series, dashed forecasts, theme-derived palette, optional `xTickLabels`. Driven by `ChartSpec` JSON. Used by the `timeseries` widget renderer.
-- **Dashboard widget chrome.** [`WidgetCard`](frontend/lib/widgets/dash_widgets/widget_card.dart) wraps every widget on a dashboard *and* every AI-produced widget in the Insights transcript. One renderer file per widget type under [`frontend/lib/widgets/dash_widgets/`](frontend/lib/widgets/dash_widgets/). The Insights screen short-circuits the data fetch by passing `previewData`. See [`docs/widgets.md`](docs/widgets.md).
+- **Shell.** `AppShell` ([frontend/lib/widgets/app_shell.dart](frontend/lib/widgets/app_shell.dart)) owns the mutable category root and transaction list, threads them down to Categories and Expenses. The Widgets and Insights tabs are self-contained — they talk directly to the backend. The top-level `BudgetTraceApp` ([frontend/lib/main.dart](frontend/lib/main.dart)) owns the `Me` state (features + key-set bool + `last_dashboard_id` from `GET /me`). Tab indices are stable across the app: `0=Categories, 1=Expenses, 2=Widgets, 3=Insights`. Widgets is filtered out of the nav lists when `me.features.widgets` is off.
+- **Theming.** Dark theme only — the light variant was retired with the Arctic visual rework. `BudgetTheme` is a `ThemeExtension`; reach it via `context.bt`. Existing semantic tokens: `ink`/`ink2`-`ink5`, `bg`/`bg2`/`surface`/`surface2`, `pos`/`negBg`/`warnBg`, `rule`/`ruleStrong`/`ruleSoft`, `tile1`-`tile5`. Visual-rework additions: `bgGrad`/`bgVeilA`/`bgVeilB` (page gradient + corner orbs), `glass1`/`glass2`/`glass3`/`glassBorder`/`glassBorderStrong`/`glassHighlight`/`glassShadow` (frosted-glass tiers), `accent`/`accent2`/`accentGrad` (sky→cyan→teal primary gradient), `fieldBg`/`fieldBorder`, `categoryColors` (12-hue category palette). Never use raw `Colors.*` for visible UI. `Me.theme` is still on the wire but unused by the frontend (the app is dark-only). `me.theme` settings UI was removed from the Account screen.
+- **Glass primitives.** [`frontend/lib/widgets/glass.dart`](frontend/lib/widgets/glass.dart) owns the visual layer: `GlassSurface` (tier-1/2/3/strong frosted card with sheen + drop shadow + 1 px border), `AppBackground` (page gradient + accent veil orbs, wraps `AppShell`'s body), `GlassButton` (variants: primary = accent gradient + bezel + outer halo, secondary = glass-2 fill, ghost, destructive), `GlassChip`, `GlassField`, `GlassToggle`, `GradientText`, `GlassModalShell`, `GradientIconTile`, `showGlassModal()` (blurred-barrier dialog presenter). Categories/Expenses/Insights/etc. all read their visual chrome from these primitives; `BudgetCard` is a thin wrapper around `GlassSurface(t1)` so legacy call sites inherit the look. Modal dialogs (`AlertDialog`, `PopupMenuButton`, `BottomSheet`) are pinned to an opaque deep-navy via `ThemeData.dialogTheme`/`popupMenuTheme`/`bottomSheetTheme` — otherwise they'd default to the translucent `glass1` colour and render see-through.
+- **Icons.** `BudgetIcons` ([frontend/lib/widgets/cat_icon.dart](frontend/lib/widgets/cat_icon.dart)) — Lucide-style SVG paths via a custom `CustomPainter`. Use `BudgetIcons.build(key, size, strokeWidth, color)`. Default stroke is **1.6**. Categories no longer carry icons in the UI; the icon set is dual-purpose (UI icons + category icons resolved through `BudgetIcons.forCategory`).
+- **Generic chart.** [`TimeseriesChart`](frontend/lib/widgets/timeseries_chart.dart) — multi-series, dashed forecasts, accent-gradient stroke, vertical-fill polygon under solid lines, hover guideline + per-series dot + floating tooltip. Driven by `ChartSpec` JSON. Used by the `timeseries` widget renderer.
+- **Dashboard widget chrome.** [`WidgetCard`](frontend/lib/widgets/dash_widgets/widget_card.dart) wraps every widget on a dashboard *and* every AI-produced widget in the Insights transcript. One renderer file per widget type under [`frontend/lib/widgets/dash_widgets/`](frontend/lib/widgets/dash_widgets/). The pie + treemap + timeseries widgets each have hover tooltips driven by a shared [`ChartHoverTooltip`](frontend/lib/widgets/dash_widgets/chart_hover_tooltip.dart). The Insights screen short-circuits the data fetch by passing `previewData`. See [`docs/widgets.md`](docs/widgets.md).
 
 ## Conventions worth re-stating
 

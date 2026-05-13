@@ -4,6 +4,7 @@ import '../../models/dashboard.dart';
 import '../../services/dashboards_client.dart';
 import '../../theme/app_theme.dart';
 import '../cat_icon.dart';
+import '../glass.dart';
 import 'bar_widget.dart';
 import 'pie_widget.dart';
 import 'query_value_widget.dart';
@@ -103,13 +104,9 @@ class _WidgetCardState extends State<WidgetCard> {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return Container(
-      decoration: BoxDecoration(
-        color: bt.surface,
-        border: Border.all(color: bt.rule),
-        borderRadius: const BorderRadius.all(Radius.circular(14)),
-      ),
-      clipBehavior: Clip.antiAlias,
+    return GlassSurface(
+      tier: GlassTier.t1,
+      radius: 20,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

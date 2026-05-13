@@ -34,7 +34,7 @@ class RecentTableWidgetBody extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(vertical: 6),
             decoration: BoxDecoration(
-              border: Border(bottom: BorderSide(color: bt.ruleSoft)),
+              border: Border(bottom: BorderSide(color: bt.glassBorder)),
             ),
             child: Row(children: [
               for (final c in columns) _headerCell(bt, c),

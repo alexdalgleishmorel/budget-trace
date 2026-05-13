@@ -14,6 +14,7 @@ import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
 import '../utils/cycle_labels.dart';
 import 'bottom_tabs.dart';
+import 'glass.dart';
 import 'side_nav.dart';
 
 const kDesktopBreakpoint = 600.0;
@@ -258,6 +259,7 @@ class _AppShellState extends State<AppShell> {
       }
       return WidgetsScreen(
         onLastDashboardChanged: () => widget.onRefreshMe(),
+        onOpenAccount: _openAccount,
       );
     }
 
@@ -281,33 +283,39 @@ class _AppShellState extends State<AppShell> {
 
         if (isDesktop) {
           return Scaffold(
-            body: Row(
-              children: [
-                SideNav(
-                  current: _tab,
-                  onNav: _onNav,
-                  cycleLabel: _cycleLabel,
-                  cycleLabels: _cycleLabels,
-                  onCycleChange: _onCycleChange,
-                  onOpenAccount: _openAccount,
-                  showWidgets: widget.me.features.widgets,
-                ),
-                Expanded(child: _buildScreen(_tab)),
-              ],
+            backgroundColor: Colors.transparent,
+            body: AppBackground(
+              child: Row(
+                children: [
+                  SideNav(
+                    current: _tab,
+                    onNav: _onNav,
+                    cycleLabel: _cycleLabel,
+                    cycleLabels: _cycleLabels,
+                    onCycleChange: _onCycleChange,
+                    onOpenAccount: _openAccount,
+                    showWidgets: widget.me.features.widgets,
+                  ),
+                  Expanded(child: _buildScreen(_tab)),
+                ],
+              ),
             ),
           );
         }
 
         return Scaffold(
-          body: Column(
-            children: [
-              Expanded(child: _buildScreen(_tab)),
-              BottomTabsBar(
-                current: _tab,
-                onNav: _onNav,
-                showWidgets: widget.me.features.widgets,
-              ),
-            ],
+          backgroundColor: Colors.transparent,
+          body: AppBackground(
+            child: Column(
+              children: [
+                Expanded(child: _buildScreen(_tab)),
+                BottomTabsBar(
+                  current: _tab,
+                  onNav: _onNav,
+                  showWidgets: widget.me.features.widgets,
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -356,21 +364,13 @@ class _BackendError extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: bt.ink4),
             ),
             const SizedBox(height: 16),
-            GestureDetector(
-              onTap: onRetry,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-                decoration: BoxDecoration(
-                  color: bt.surface,
-                  border: Border.all(color: bt.ruleStrong),
-                  borderRadius: const BorderRadius.all(Radius.circular(10)),
-                ),
-                child: Text(
-                  'Retry',
-                  style: TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w500, color: bt.ink2),
-                ),
-              ),
+            GlassButton(
+              label: 'Retry',
+              onPressed: () {
+                onRetry();
+              },
+              variant: GlassButtonVariant.secondary,
+              compact: true,
             ),
           ],
         ),

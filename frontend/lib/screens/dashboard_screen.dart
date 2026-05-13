@@ -10,6 +10,7 @@ import '../widgets/cat_icon.dart';
 import '../widgets/dash_widgets/add_widget_drawer.dart';
 import '../widgets/dash_widgets/dashboard_grid.dart';
 import '../widgets/dash_widgets/widget_card.dart';
+import '../widgets/glass.dart';
 
 /// One dashboard, full-screen. Owns the loaded dashboard, the edit-mode
 /// toggle, the dashboard-switcher dropdown, and the add-widget drawer.
@@ -229,6 +230,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                     onAdd: () => _addWidget(),
                     onBack: () => Navigator.of(context).pop(),
                     onTimeRangeChanged: _setTimeRange,
+                    isDesktop: isDesktop,
                   ),
                 ),
                 Expanded(
@@ -280,6 +282,7 @@ class _Header extends StatelessWidget {
     required this.onAdd,
     required this.onBack,
     required this.onTimeRangeChanged,
+    required this.isDesktop,
   });
 
   final Dashboard dashboard;
@@ -287,15 +290,40 @@ class _Header extends StatelessWidget {
   final VoidCallback onAdd;
   final VoidCallback onBack;
   final void Function(DashboardTimeRange) onTimeRangeChanged;
+  final bool isDesktop;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    // Action bar: back on the left, "Add widget" visually centred,
-    // time picker on the right. The Stack lets the centred button
-    // ignore the asymmetric widths of the side controls so it sits
-    // at the true horizontal centre. Rename / delete live on the
-    // Widgets overview page now, not in this header.
+
+    if (!isDesktop) {
+      // Mobile: tight icon row — back chevron, spacer, calendar pill
+      // (opens the same PopupMenuButton), accent-gradient + pill. The
+      // labelled desktop variants overflowed on narrow widths.
+      return Row(
+        children: [
+          IconButton(
+            onPressed: onBack,
+            tooltip: 'All dashboards',
+            icon: BudgetIcons.build(
+                'chevron-left', size: 18, color: bt.ink2),
+          ),
+          const Spacer(),
+          _TimeRangePicker(
+            presets: presets,
+            current: dashboard.timeRange,
+            onChanged: onTimeRangeChanged,
+            compact: true,
+          ),
+          const SizedBox(width: 6),
+          _AddWidgetIconButton(onPressed: onAdd),
+        ],
+      );
+    }
+
+    // Desktop: back left, time picker right, "Add widget" visually centred.
+    // The Stack lets the centred button ignore the asymmetric widths of the
+    // side controls so it sits at the true horizontal centre.
     return Stack(
       alignment: Alignment.center,
       children: [
@@ -315,12 +343,64 @@ class _Header extends StatelessWidget {
             ),
           ],
         ),
-        FilledButton.icon(
+        GlassButton(
+          label: 'Add widget',
           onPressed: onAdd,
-          icon: BudgetIcons.build('plus', size: 14, color: bt.bg),
-          label: const Text('Add widget'),
+          variant: GlassButtonVariant.primary,
+          icon: BudgetIcons.build('plus', size: 14, strokeWidth: 1.8),
         ),
       ],
+    );
+  }
+}
+
+/// 36×36 accent-gradient pill used in the mobile header for "Add widget".
+/// Matches the new-chat / send-message buttons on the Insights tab.
+class _AddWidgetIconButton extends StatelessWidget {
+  const _AddWidgetIconButton({required this.onPressed});
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    return Tooltip(
+      message: 'Add widget',
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: Container(
+            width: 36,
+            height: 36,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: bt.accentGrad,
+                stops: bt.accentGradStops,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: bt.accent.withValues(alpha: 0.28),
+                  blurRadius: 14,
+                  spreadRadius: -3,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.18),
+                width: 1,
+              ),
+            ),
+            child: BudgetIcons.build('plus',
+                size: 14, strokeWidth: 2, color: Colors.white),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -333,11 +413,15 @@ class _TimeRangePicker extends StatelessWidget {
     required this.presets,
     required this.current,
     required this.onChanged,
+    this.compact = false,
   });
 
   final List<String> presets;
   final DashboardTimeRange current;
   final void Function(DashboardTimeRange) onChanged;
+  /// When true, render as a 36×36 round glass pill with just the calendar
+  /// icon. Used in the mobile header where the labelled variant overflows.
+  final bool compact;
 
   static const _labels = <String, String>{
     'last_30_days': 'Last 30 days',
@@ -396,29 +480,51 @@ class _TimeRangePicker extends StatelessWidget {
           onChanged(DashboardTimeRange(preset: p));
         }
       },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: bt.surface,
-          border: Border.all(color: bt.ruleStrong),
-          borderRadius: const BorderRadius.all(Radius.circular(10)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.calendar_today_outlined, size: 14, color: bt.ink3),
-            const SizedBox(width: 6),
-            Text(
-              _labelFor(current),
-              style: TextStyle(
-                fontSize: 12, fontWeight: FontWeight.w500, color: bt.ink2,
+      child: compact
+          ? Tooltip(
+              message: _labelFor(current),
+              child: SizedBox(
+                width: 36,
+                height: 36,
+                child: GlassSurface(
+                  tier: GlassTier.t2,
+                  radius: 999,
+                  elevated: false,
+                  sheen: false,
+                  child: Center(
+                    child: Icon(Icons.calendar_today_outlined,
+                        size: 14, color: bt.ink2),
+                  ),
+                ),
+              ),
+            )
+          : Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: bt.fieldBg,
+                border: Border.all(color: bt.fieldBorder),
+                borderRadius: const BorderRadius.all(Radius.circular(10)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.calendar_today_outlined,
+                      size: 14, color: bt.ink3),
+                  const SizedBox(width: 6),
+                  Text(
+                    _labelFor(current),
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                      color: bt.ink2,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  BudgetIcons.build('chevron-down',
+                      size: 14, color: bt.ink3),
+                ],
               ),
             ),
-            const SizedBox(width: 4),
-            BudgetIcons.build('chevron-down', size: 14, color: bt.ink3),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -449,10 +555,11 @@ class _EmptyDashboard extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: bt.ink4, height: 1.5),
             ),
             const SizedBox(height: 14),
-            FilledButton.icon(
+            GlassButton(
+              label: 'Add widget',
               onPressed: onAdd,
-              icon: BudgetIcons.build('plus', size: 14, color: bt.bg),
-              label: const Text('Add widget'),
+              variant: GlassButtonVariant.primary,
+              icon: BudgetIcons.build('plus', size: 14, strokeWidth: 1.8),
             ),
           ],
         ),

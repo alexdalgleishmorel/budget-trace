@@ -9,6 +9,7 @@ import '../utils/format.dart';
 import '../utils/leaf_categories.dart';
 import '../widgets/budget_card.dart';
 import '../widgets/cat_icon.dart';
+import '../widgets/glass.dart';
 import '../widgets/mobile_settings_icon.dart';
 import '../widgets/category_chip.dart';
 import '../widgets/cycle_dropdown.dart';
@@ -439,7 +440,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
         // Top strip
         Container(
           padding: const EdgeInsets.fromLTRB(28, 22, 28, 18),
-          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: bt.rule))),
+          decoration: BoxDecoration(border: Border(bottom: BorderSide(color: bt.glassBorder))),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
@@ -482,7 +483,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
               // Left aside
               Container(
                 width: 340,
-                decoration: BoxDecoration(border: Border(right: BorderSide(color: bt.rule))),
+                decoration: BoxDecoration(border: Border(right: BorderSide(color: bt.glassBorder))),
                 padding: const EdgeInsets.all(20),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -672,19 +673,21 @@ class _EditPencil extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: 28,
-        height: 28,
-        decoration: BoxDecoration(
-          color: bt.surface,
-          border: Border.all(color: bt.ruleStrong),
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: GlassSurface(
+          tier: GlassTier.t2,
+          radius: 8,
+          elevated: false,
+          sheen: false,
+          padding: const EdgeInsets.all(7),
+          child: BudgetIcons.build('edit',
+              size: 13, strokeWidth: 1.6, color: bt.ink2),
         ),
-        alignment: Alignment.center,
-        child: BudgetIcons.build('edit',
-            size: 13, strokeWidth: 1.8, color: bt.ink2),
       ),
     );
   }
@@ -717,7 +720,7 @@ class _TableHeader extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 11),
-      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: bt.rule))),
+      decoration: BoxDecoration(border: Border(bottom: BorderSide(color: bt.glassBorder))),
       child: Row(
         children: [
           // Reserve the same width the row uses for its leading edit pencil
@@ -942,16 +945,11 @@ class _NoExpensesPanelState extends State<_NoExpensesPanel> {
         crossAxisAlignment: CrossAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: bt.surface2,
-              border: Border.all(color: bt.ruleStrong),
-              borderRadius: const BorderRadius.all(Radius.circular(12)),
-            ),
-            alignment: Alignment.center,
-            child: BudgetIcons.build('expenses',
+          GlassSurface(
+            tier: GlassTier.t1,
+            radius: 14,
+            padding: const EdgeInsets.all(13),
+            child: BudgetIcons.build('inbox',
                 size: 18, strokeWidth: 1.6, color: bt.ink3),
           ),
           const SizedBox(height: 14),
@@ -1032,20 +1030,21 @@ class _SearchBar extends StatelessWidget {
       children: [
         Container(
           decoration: BoxDecoration(
-            color: bt.surface2,
+            color: bt.fieldBg,
             borderRadius: BudgetRadius.inputBR,
-            border: Border.all(color: bt.ruleStrong),
+            border: Border.all(color: bt.fieldBorder),
           ),
           child: Row(
             children: [
               Padding(
                 padding: const EdgeInsets.only(left: 11),
-                child: BudgetIcons.build('search', size: 15, strokeWidth: 1.8, color: bt.ink4),
+                child: BudgetIcons.build('search', size: 15, strokeWidth: 1.6, color: bt.ink4),
               ),
               Expanded(
                 child: TextField(
                   onChanged: onChanged,
                   style: TextStyle(fontSize: 13, color: bt.ink),
+                  cursorColor: bt.accent,
                   decoration: InputDecoration(
                     hintText: 'Search merchant',
                     hintStyle: TextStyle(color: bt.ink4),
@@ -1127,9 +1126,9 @@ class _CategoryDropdownState extends State<_CategoryDropdown> {
         child: Container(
           padding: const EdgeInsets.fromLTRB(12, 9, 10, 9),
           decoration: BoxDecoration(
-            color: hasCat ? widget.bt.surface : widget.bt.surface2,
+            color: widget.bt.fieldBg,
             borderRadius: BudgetRadius.inputBR,
-            border: Border.all(color: widget.bt.ruleStrong),
+            border: Border.all(color: hasCat ? widget.bt.accent.withValues(alpha: 0.40) : widget.bt.fieldBorder),
           ),
           child: Row(
             children: [
@@ -1216,27 +1215,21 @@ class _FilterOverlayState extends State<_FilterOverlay> {
               onTap: () {},
               child: Material(
                 color: Colors.transparent,
-                child: Container(
+                child: SizedBox(
                   width: 260,
-                  constraints: const BoxConstraints(maxHeight: 340),
-                  decoration: BoxDecoration(
-                    color: widget.bt.surface,
-                    borderRadius: const BorderRadius.all(Radius.circular(14)),
-                    border: Border.all(color: widget.bt.ruleStrong),
-                    boxShadow: const [
-                      BoxShadow(color: Color(0x40000000), blurRadius: 20, offset: Offset(0, 8)),
-                    ],
-                  ),
-                  child: ClipRRect(
-                    borderRadius: const BorderRadius.all(Radius.circular(14)),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _FilterSearchField(
-                          bt: widget.bt,
-                          onChanged: (v) => setState(() => _search = v),
-                        ),
-                        Divider(height: 1, color: widget.bt.rule),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 340),
+                    child: GlassSurface(
+                      tier: GlassTier.strong,
+                      radius: 14,
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _FilterSearchField(
+                            bt: widget.bt,
+                            onChanged: (v) => setState(() => _search = v),
+                          ),
+                          Divider(height: 1, color: widget.bt.glassBorder),
                         Flexible(
                           child: SingleChildScrollView(
                             child: Column(
@@ -1274,6 +1267,7 @@ class _FilterOverlayState extends State<_FilterOverlay> {
                 ),
               ),
             ),
+          ),
           ),
         ],
       ),

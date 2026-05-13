@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/budget_category.dart';
 import '../theme/app_theme.dart';
 import 'cat_icon.dart';
+import 'glass.dart';
 
 /// Add/edit/delete dialog for a category. Adapted from the original
 /// `HFEditModal` prototype but trimmed to fit the simplified data model:
@@ -28,7 +29,7 @@ class CategoryEditModal extends StatefulWidget {
   }) {
     return showDialog(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
+      barrierColor: const Color(0x8C080614),
       builder: (_) => CategoryEditModal._(
         mode: CategoryEditMode.create,
         root: root,
@@ -54,7 +55,7 @@ class CategoryEditModal extends StatefulWidget {
   }) {
     return showDialog(
       context: context,
-      barrierColor: Colors.black.withValues(alpha: 0.45),
+      barrierColor: const Color(0x8C080614),
       builder: (_) => CategoryEditModal._(
         mode: CategoryEditMode.edit,
         root: root,
@@ -229,10 +230,9 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 22, vertical: 32),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 460),
-        child: Material(
-          color: bt.surface,
-          borderRadius: const BorderRadius.all(Radius.circular(18)),
-          clipBehavior: Clip.antiAlias,
+        child: GlassSurface(
+          tier: GlassTier.strong,
+          radius: 24,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
@@ -240,7 +240,7 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
               Container(
                 padding: const EdgeInsets.fromLTRB(22, 18, 14, 14),
                 decoration: BoxDecoration(
-                  border: Border(bottom: BorderSide(color: bt.rule)),
+                  border: Border(bottom: BorderSide(color: bt.glassBorder)),
                 ),
                 child: Row(
                   children: [
@@ -383,8 +383,8 @@ class _CategoryEditModalState extends State<CategoryEditModal> {
               Container(
                 padding: const EdgeInsets.fromLTRB(22, 14, 22, 14),
                 decoration: BoxDecoration(
-                  color: bt.surface2,
-                  border: Border(top: BorderSide(color: bt.rule)),
+                  color: bt.glass1,
+                  border: Border(top: BorderSide(color: bt.glassBorder)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -574,8 +574,8 @@ class _ParentDropdown extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
-        color: bt.surface2,
-        border: Border.all(color: bt.ruleStrong),
+        color: bt.fieldBg,
+        border: Border.all(color: bt.fieldBorder),
         borderRadius: const BorderRadius.all(Radius.circular(10)),
       ),
       child: DropdownButtonHideUnderline(
@@ -583,8 +583,8 @@ class _ParentDropdown extends StatelessWidget {
           value: current,
           isExpanded: true,
           icon: BudgetIcons.build('chevron-down',
-              size: 14, strokeWidth: 2, color: bt.ink3),
-          dropdownColor: bt.surface,
+              size: 14, strokeWidth: 1.6, color: bt.ink3),
+          dropdownColor: bt.bg,
           style: TextStyle(fontSize: 14, color: bt.ink),
           onChanged: (v) {
             if (v != null) onChange(v);
@@ -613,25 +613,11 @@ class _GhostButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onTap == null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Opacity(
-        opacity: disabled ? 0.4 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: bt.surface,
-            border: Border.all(color: bt.ruleStrong),
-            borderRadius: const BorderRadius.all(Radius.circular(10)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w500, color: bt.ink2),
-          ),
-        ),
-      ),
+    return GlassButton(
+      label: label,
+      onPressed: onTap,
+      variant: GlassButtonVariant.secondary,
+      compact: true,
     );
   }
 }
@@ -644,24 +630,11 @@ class _PrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final disabled = onTap == null;
-    return GestureDetector(
-      onTap: onTap,
-      child: Opacity(
-        opacity: disabled ? 0.4 : 1,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-          decoration: BoxDecoration(
-            color: bt.ink,
-            borderRadius: const BorderRadius.all(Radius.circular(10)),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-                fontSize: 13, fontWeight: FontWeight.w500, color: bt.bg),
-          ),
-        ),
-      ),
+    return GlassButton(
+      label: label,
+      onPressed: onTap,
+      variant: GlassButtonVariant.primary,
+      compact: true,
     );
   }
 }

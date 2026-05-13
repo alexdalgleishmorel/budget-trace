@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../theme/app_theme.dart';
 import '../utils/format.dart';
 import 'budget_card.dart';
+import 'dash_widgets/chart_hover_tooltip.dart';
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ class ChartSeries {
 /// `height` is optional: when null, the chart flexes to fill its parent's
 /// remaining vertical space. Pass an explicit value for fixed-height use
 /// (e.g. inside scrollable lists like the Insights transcript).
-class TimeseriesChart extends StatelessWidget {
+class TimeseriesChart extends StatefulWidget {
   const TimeseriesChart({
     super.key,
     required this.title,
@@ -71,12 +72,130 @@ class TimeseriesChart extends StatelessWidget {
   /// `WidgetCard` where the chrome's titlebar already shows the title.
   final bool showTitle;
 
+  static List<Color> _palette(BudgetTheme bt) =>
+      [bt.accent, bt.accent2, ...bt.categoryColors];
+
+  @override
+  State<TimeseriesChart> createState() => _TimeseriesChartState();
+}
+
+class _TimeseriesChartState extends State<TimeseriesChart> {
+  /// Unique x values across all series, sorted. The hover snaps to one of
+  /// these so the tooltip lines up with real data points rather than
+  /// landing between samples.
+  List<double> _xList = const [];
+  double _xMin = 0;
+  double _xMax = 1;
+
+  /// Index of the snapped x in [_xList]. Null when not hovering.
+  int? _hoverIdx;
+  /// Raw cursor position inside the chart CustomPaint. Used to position the
+  /// floating tooltip card.
+  Offset? _cursor;
+
+  @override
+  void initState() {
+    super.initState();
+    _rebuildX();
+  }
+
+  @override
+  void didUpdateWidget(TimeseriesChart old) {
+    super.didUpdateWidget(old);
+    if (old.series != widget.series) _rebuildX();
+  }
+
+  void _rebuildX() {
+    final s = <double>{};
+    for (final ser in widget.series) {
+      for (final p in ser.points) {
+        s.add(p.x);
+      }
+    }
+    final list = s.toList()..sort();
+    _xList = list;
+    if (list.isNotEmpty) {
+      _xMin = list.first;
+      _xMax = list.last;
+      if (_xMax == _xMin) _xMax = _xMin + 1;
+    } else {
+      _xMin = 0;
+      _xMax = 1;
+    }
+    // Stale index after a data swap would point at a different x.
+    _hoverIdx = null;
+    _cursor = null;
+  }
+
+  void _onMove(Offset localPos, Size chartSize) {
+    if (_xList.isEmpty) return;
+    final innerW = chartSize.width - _padL - _padR;
+    if (innerW <= 0) {
+      _clearHover();
+      return;
+    }
+    // Cursor outside the inner chart area (in the y-padding strip) still
+    // counts — we snap to the nearest x along the horizontal axis.
+    final cx = localPos.dx.clamp(_padL, _padL + innerW);
+    final t = (cx - _padL) / innerW;
+    final xVal = _xMin + t * (_xMax - _xMin);
+    var bestIdx = 0;
+    var bestD = double.infinity;
+    for (var i = 0; i < _xList.length; i++) {
+      final d = (_xList[i] - xVal).abs();
+      if (d < bestD) {
+        bestD = d;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx != _hoverIdx || _cursor != localPos) {
+      setState(() {
+        _hoverIdx = bestIdx;
+        _cursor = localPos;
+      });
+    }
+  }
+
+  void _clearHover() {
+    if (_hoverIdx != null || _cursor != null) {
+      setState(() {
+        _hoverIdx = null;
+        _cursor = null;
+      });
+    }
+  }
+
+  String _headerLabel(int idx) {
+    final ticks = widget.xTickLabels;
+    if (ticks != null && ticks.length == _xList.length) {
+      return ticks[idx];
+    }
+    final v = _xList[idx];
+    if (v == v.roundToDouble()) return v.toStringAsFixed(0);
+    return v.toStringAsFixed(2);
+  }
+
+  String _fmtY(double v) {
+    if (v.abs() >= 1000) return '\$${fmtMoney(v)}';
+    if (v == v.roundToDouble()) return v.toStringAsFixed(0);
+    return v.toStringAsFixed(2);
+  }
+
+  /// Find the y value for series [s] at x = [x]. Returns null when the
+  /// series has no sample at that exact x.
+  double? _yAt(ChartSeries s, double x) {
+    for (final p in s.points) {
+      if ((p.x - x).abs() < 1e-6) return p.y;
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final palette = _palette(bt);
-    final coloured = List<ChartSeries>.generate(series.length, (i) {
-      final s = series[i];
+    final palette = TimeseriesChart._palette(bt);
+    final coloured = List<ChartSeries>.generate(widget.series.length, (i) {
+      final s = widget.series[i];
       return s.color != null
           ? s
           : ChartSeries(
@@ -87,13 +206,57 @@ class TimeseriesChart extends StatelessWidget {
             );
     });
 
-    final painter = CustomPaint(
-      painter: _ChartPainter(
-        series: coloured,
-        bt: bt,
-        xTickLabels: xTickLabels,
-      ),
-      size: Size.infinite,
+    final hoverX = _hoverIdx != null ? _xList[_hoverIdx!] : null;
+
+    final painterArea = LayoutBuilder(
+      builder: (_, c) {
+        final size = Size(c.maxWidth, c.maxHeight);
+        return MouseRegion(
+          onHover: (e) => _onMove(e.localPosition, size),
+          onExit: (_) => _clearHover(),
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapDown: (d) => _onMove(d.localPosition, size),
+            onPanUpdate: (d) => _onMove(d.localPosition, size),
+            onPanEnd: (_) => _clearHover(),
+            child: Stack(
+              children: [
+                Positioned.fill(
+                  child: CustomPaint(
+                    painter: _ChartPainter(
+                      series: coloured,
+                      bt: bt,
+                      xTickLabels: widget.xTickLabels,
+                      highlightX: hoverX,
+                    ),
+                  ),
+                ),
+                if (_hoverIdx != null && _cursor != null)
+                  PositionedChartTooltip(
+                    cursor: _cursor!,
+                    containerSize: size,
+                    estimatedWidth: 220,
+                    estimatedHeight:
+                        24 + 18.0 * coloured.length.clamp(1, 4),
+                    child: ChartHoverTooltip(
+                      header: _headerLabel(_hoverIdx!),
+                      lines: [
+                        for (final s in coloured) ...[
+                          if (_yAt(s, _xList[_hoverIdx!]) != null)
+                            ChartTooltipLine(
+                              swatchColor: s.color,
+                              label: s.label,
+                              value: _fmtY(_yAt(s, _xList[_hoverIdx!])!),
+                            ),
+                        ],
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
     );
 
     return BudgetCard(
@@ -102,25 +265,26 @@ class TimeseriesChart extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (showTitle)
-              Text(title,
+            if (widget.showTitle)
+              Text(widget.title,
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
                     color: bt.ink,
                   )),
-            if (yAxisLabel != null) ...[
-              if (showTitle) const SizedBox(height: 2),
-              BudgetLabel(yAxisLabel!),
+            if (widget.yAxisLabel != null) ...[
+              if (widget.showTitle) const SizedBox(height: 2),
+              BudgetLabel(widget.yAxisLabel!),
             ],
-            if (showTitle || yAxisLabel != null) const SizedBox(height: 10),
-            if (height != null)
-              SizedBox(height: height, child: painter)
+            if (widget.showTitle || widget.yAxisLabel != null)
+              const SizedBox(height: 10),
+            if (widget.height != null)
+              SizedBox(height: widget.height, child: painterArea)
             else
-              Expanded(child: painter),
-            if (xAxisLabel != null) ...[
+              Expanded(child: painterArea),
+            if (widget.xAxisLabel != null) ...[
               const SizedBox(height: 4),
-              Center(child: BudgetLabel(xAxisLabel!)),
+              Center(child: BudgetLabel(widget.xAxisLabel!)),
             ],
             if (coloured.length > 1) ...[
               const SizedBox(height: 10),
@@ -131,9 +295,6 @@ class TimeseriesChart extends StatelessWidget {
       ),
     );
   }
-
-  static List<Color> _palette(BudgetTheme bt) =>
-      [bt.ink, bt.pos, bt.warn, bt.neg, bt.ink3];
 }
 
 // ── Legend ───────────────────────────────────────────────────────────────────
@@ -203,11 +364,15 @@ class _ChartPainter extends CustomPainter {
     required this.series,
     required this.bt,
     this.xTickLabels,
+    this.highlightX,
   });
 
   final List<ChartSeries> series;
   final BudgetTheme bt;
   final List<String>? xTickLabels;
+  /// When non-null, draws a vertical guideline at this x value and a dot
+  /// on every series that has a sample at it.
+  final double? highlightX;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -241,10 +406,14 @@ class _ChartPainter extends CustomPainter {
 
     // Grid + y-axis labels at 0%, 50%, 100%.
     final gridPaint = Paint()
-      ..color = bt.rule
-      ..strokeWidth = 1;
+      ..color = bt.glassBorder
+      ..strokeWidth = 0.6;
     final labelStyle = TextStyle(
-      fontSize: 9, fontFamily: 'monospace', color: bt.ink4,
+      fontSize: 10,
+      fontFamily: 'SF Mono',
+      fontFamilyFallback: const ['Menlo', 'monospace'],
+      color: bt.ink3,
+      fontFeatures: const [FontFeature.tabularFigures()],
     );
     for (final f in [0.0, 0.5, 1.0]) {
       final yVal = yMin + (yMax - yMin) * f;
@@ -301,31 +470,105 @@ class _ChartPainter extends CustomPainter {
     }
 
     // Each series.
+    final chartRect = Rect.fromLTWH(_padL, _padT, innerW, innerH);
     for (final s in series) {
       if (s.points.length < 2) continue;
-      final paint = Paint()
-        ..color = s.color!
-        ..strokeWidth = 1.75
-        ..strokeCap = StrokeCap.round
-        ..strokeJoin = StrokeJoin.round
-        ..style = PaintingStyle.stroke;
-
       final pts = [for (final p in s.points) Offset(xAt(p.x), yAt(p.y))];
-      if (s.style == LineStyle.dashed) {
+
+      if (s.style == LineStyle.solid) {
+        // Fill polygon beneath the line, using a vertical accent gradient.
+        final fillPath = Path()..moveTo(pts.first.dx, pts.first.dy);
         for (int i = 1; i < pts.length; i++) {
-          _drawDashed(canvas, pts[i - 1], pts[i], paint, 4, 4);
+          fillPath.lineTo(pts[i].dx, pts[i].dy);
         }
-      } else {
+        fillPath.lineTo(pts.last.dx, _padT + innerH);
+        fillPath.lineTo(pts.first.dx, _padT + innerH);
+        fillPath.close();
+        final fillPaint = Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              s.color!.withValues(alpha: 0.30),
+              s.color!.withValues(alpha: 0.0),
+            ],
+          ).createShader(chartRect);
+        canvas.drawPath(fillPath, fillPaint);
+
+        // Stroke with a horizontal accent → accent2 gradient.
+        final strokePaint = Paint()
+          ..shader = LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [bt.accent, bt.accent2],
+          ).createShader(chartRect)
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..style = PaintingStyle.stroke;
         final path = Path()..moveTo(pts.first.dx, pts.first.dy);
         for (int i = 1; i < pts.length; i++) {
           path.lineTo(pts[i].dx, pts[i].dy);
         }
-        canvas.drawPath(path, paint);
-      }
+        canvas.drawPath(path, strokePaint);
 
-      // End dot for solid lines (helps the eye track where observed data ends).
-      if (s.style == LineStyle.solid && pts.isNotEmpty) {
-        canvas.drawCircle(pts.last, 3, Paint()..color = s.color!);
+        // End-of-observed-data dot: filled accent + ring stroked in bg
+        // so it pops against the gradient backdrop.
+        if (pts.isNotEmpty) {
+          canvas.drawCircle(pts.last, 3.5, Paint()..color = bt.accent);
+          canvas.drawCircle(
+            pts.last,
+            3.5,
+            Paint()
+              ..color = bt.bg
+              ..strokeWidth = 1.5
+              ..style = PaintingStyle.stroke,
+          );
+        }
+      } else {
+        // Dashed forecast — use accent2 with a 2-on/2-off pattern.
+        final paint = Paint()
+          ..color = bt.accent2
+          ..strokeWidth = 1.6
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..style = PaintingStyle.stroke;
+        for (int i = 1; i < pts.length; i++) {
+          _drawDashed(canvas, pts[i - 1], pts[i], paint, 2, 2);
+        }
+      }
+    }
+
+    // Hover guideline + per-series dots at the snapped x.
+    final hx = highlightX;
+    if (hx != null && hx >= xMin && hx <= xMax) {
+      final gx = xAt(hx);
+      canvas.drawLine(
+        Offset(gx, _padT),
+        Offset(gx, _padT + innerH),
+        Paint()
+          ..color = bt.glassBorderStrong
+          ..strokeWidth = 1.0,
+      );
+      for (final s in series) {
+        ChartPoint? hit;
+        for (final p in s.points) {
+          if ((p.x - hx).abs() < 1e-6) {
+            hit = p;
+            break;
+          }
+        }
+        if (hit == null) continue;
+        final pos = Offset(xAt(hit.x), yAt(hit.y));
+        canvas.drawCircle(pos, 4.0, Paint()..color = s.color!);
+        canvas.drawCircle(
+          pos,
+          4.0,
+          Paint()
+            ..color = bt.bg
+            ..strokeWidth = 1.5
+            ..style = PaintingStyle.stroke,
+        );
       }
     }
   }
@@ -363,7 +606,9 @@ class _ChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_ChartPainter old) =>
-      old.series != series || old.xTickLabels != xTickLabels;
+      old.series != series ||
+      old.xTickLabels != xTickLabels ||
+      old.highlightX != highlightX;
 }
 
 // Shared dashed-line walker — used by both the legend swatch and the painter.

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 import 'cat_icon.dart';
+import 'glass.dart';
 
 /// Canonical copy used to invite the user to turn on AI features. Reuse
 /// these strings from every surface that wants to promote AI rather than
@@ -33,10 +34,8 @@ class AiPromoCopy {
 /// stacked empty state for use as a whole tab's content.
 enum AiPromoVariant { compact, fullPage }
 
-/// Green-themed call-to-action promoting AI features. The canonical visual
-/// for "turn on AI to unlock this surface" anywhere in the app — every
-/// AI-disabled empty state should reach for this widget rather than rolling
-/// its own banner.
+/// Glass-tier call-to-action promoting AI features. Every AI-disabled empty
+/// state should reach for this widget rather than rolling its own banner.
 class AiPromo extends StatelessWidget {
   const AiPromo({
     super.key,
@@ -46,8 +45,6 @@ class AiPromo extends StatelessWidget {
     this.variant = AiPromoVariant.compact,
   });
 
-  /// Inline banner for use inside another widget (e.g. inside the Dropzone
-  /// card). Uses [AiPromoCopy.uploadHeadline] / [uploadBody] by default.
   factory AiPromo.upload({Key? key, VoidCallback? onOpenAccount}) => AiPromo(
         key: key,
         headline: AiPromoCopy.uploadHeadline,
@@ -56,8 +53,6 @@ class AiPromo extends StatelessWidget {
         variant: AiPromoVariant.compact,
       );
 
-  /// Full-page empty state — centered, with the CTA. Used by Insights when
-  /// AI is disabled.
   factory AiPromo.insights({Key? key, VoidCallback? onOpenAccount}) => AiPromo(
         key: key,
         headline: AiPromoCopy.insightsHeadline,
@@ -102,21 +97,18 @@ class _CompactBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    return Container(
+    return GlassSurface(
+      tier: GlassTier.t1,
+      radius: 12,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: bt.posBg,
-        borderRadius: BudgetRadius.smBR,
-        border: Border.all(color: bt.posBorder),
-      ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           BudgetIcons.build(
             'sparkle',
             size: 14,
-            strokeWidth: 1.8,
-            color: bt.pos,
+            strokeWidth: 1.6,
+            color: bt.accent,
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -126,9 +118,9 @@ class _CompactBody extends StatelessWidget {
                 Text(
                   headline,
                   style: TextStyle(
-                    fontSize: 12.5,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: bt.pos,
+                    color: bt.ink,
                     height: 1.3,
                   ),
                 ),
@@ -136,14 +128,19 @@ class _CompactBody extends StatelessWidget {
                 Text(
                   body,
                   style: TextStyle(
-                    fontSize: 11.5,
+                    fontSize: 12,
                     color: bt.ink2,
                     height: 1.45,
                   ),
                 ),
                 if (onOpenAccount != null) ...[
                   const SizedBox(height: 10),
-                  _OpenAccountButton(onTap: onOpenAccount!, big: false),
+                  GlassButton(
+                    label: AiPromoCopy.ctaLabel,
+                    onPressed: onOpenAccount,
+                    variant: GlassButtonVariant.primary,
+                    compact: true,
+                  ),
                 ],
               ],
             ),
@@ -168,59 +165,58 @@ class _FullPageBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    // Vertical layout: icon on top, headline, body, CTA. The Column shrink-
-    // wraps so the green Container's height matches its content rather than
-    // filling the available space.
-    final card = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 22),
-      decoration: BoxDecoration(
-        color: bt.posBg,
-        borderRadius: BudgetRadius.smBR,
-        border: Border.all(color: bt.posBorder),
-      ),
+    final card = GlassSurface(
+      tier: GlassTier.t1,
+      radius: 24,
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          BudgetIcons.build(
-            'sparkle',
-            size: 22,
-            strokeWidth: 1.8,
-            color: bt.pos,
+          GradientIconTile(
+            size: 80,
+            radius: 24,
+            child: BudgetIcons.build(
+              'sparkle',
+              size: 32,
+              strokeWidth: 1.8,
+              color: Colors.white,
+            ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 18),
           Text(
             headline,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 15,
+              fontSize: 22,
               fontWeight: FontWeight.w600,
-              color: bt.pos,
-              height: 1.3,
+              letterSpacing: -0.015 * 22,
+              color: bt.ink,
+              height: 1.2,
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Text(
             body,
             textAlign: TextAlign.center,
             style: TextStyle(
-              fontSize: 12.5,
-              color: bt.ink2,
-              height: 1.5,
+              fontSize: 13,
+              color: bt.ink3,
+              height: 1.55,
             ),
           ),
           if (onOpenAccount != null) ...[
-            const SizedBox(height: 18),
-            _OpenAccountButton(onTap: onOpenAccount!, big: true),
+            const SizedBox(height: 20),
+            GlassButton(
+              label: AiPromoCopy.ctaLabel,
+              onPressed: onOpenAccount,
+              variant: GlassButtonVariant.primary,
+            ),
           ],
         ],
       ),
     );
 
-    // Center in both axes within the parent. SingleChildScrollView keeps the
-    // banner readable on very short viewports without forcing a tight height
-    // onto the Container (which would otherwise stretch the green box to
-    // fill the page).
     return SingleChildScrollView(
       child: Center(
         child: Padding(
@@ -228,38 +224,6 @@ class _FullPageBody extends StatelessWidget {
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 460),
             child: card,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _OpenAccountButton extends StatelessWidget {
-  const _OpenAccountButton({required this.onTap, required this.big});
-  final VoidCallback onTap;
-  final bool big;
-
-  @override
-  Widget build(BuildContext context) {
-    final bt = context.bt;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: EdgeInsets.symmetric(
-          horizontal: big ? 14 : 10,
-          vertical: big ? 9 : 6,
-        ),
-        decoration: BoxDecoration(
-          color: bt.pos,
-          borderRadius: const BorderRadius.all(Radius.circular(8)),
-        ),
-        child: Text(
-          AiPromoCopy.ctaLabel,
-          style: TextStyle(
-            fontSize: big ? 12.5 : 11.5,
-            fontWeight: FontWeight.w600,
-            color: bt.bg,
           ),
         ),
       ),

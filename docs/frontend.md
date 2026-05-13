@@ -2,6 +2,8 @@
 
 Flutter app. Four tabs (Categories, Expenses, Widgets, Insights). All four talk to the backend — there is no in-memory mock data.
 
+The user-facing brand is **Expense Visualizer** ([lib/main.dart](../frontend/lib/main.dart) sets `MaterialApp.title`). The Dart package, the `BudgetTrace*` class names, and the `BudgetTheme`/`BudgetCard`/`BudgetIcons` symbols are internal identifiers and stay as-is.
+
 ## Run it
 
 From `frontend/`:
@@ -14,6 +16,19 @@ flutter run -d chrome --dart-define=API_BASE_URL=http://localhost:8000
 Without the `--dart-define`, the Insights tab still loads, but every chat request errors with a connection refused — `ChatClient` defaults to `http://localhost:8000` and there's nothing listening unless the backend is up.
 
 `flutter run -d macos` also works; iOS/Android need the host to be reachable from the device.
+
+## Visual layer (Arctic)
+
+Dark-only glass-morphism theme. The visual primitives live in two files:
+
+| File | Purpose |
+|------|---------|
+| [lib/theme/app_theme.dart](../frontend/lib/theme/app_theme.dart) | `BudgetTheme` (a `ThemeExtension`) plus `BudgetColors` constants and `BudgetRadius` scale. Reach the tokens via `context.bt`. Tokens include the existing semantic set (`ink`/`ink2-5`, `bg`/`bg2`, `surface`/`surface2`, `pos`/`neg`/`warn`, `rule`/`ruleStrong`/`ruleSoft`, `tile1-5`) plus the rework additions (`bgGrad`/`bgVeilA`/`bgVeilB`, `glass1-3`/`glassBorder`/`glassBorderStrong`/`glassHighlight`/`glassShadow`, `fieldBg`/`fieldBorder`, `accent`/`accent2`/`accentGrad`, `categoryColors`). Light variant has been retired; `BudgetTheme.dark` is the single canonical theme. |
+| [lib/widgets/glass.dart](../frontend/lib/widgets/glass.dart) | Shared primitives: `GlassSurface` (tier-1/2/3/strong frosted card with optional sheen + drop shadow + dashed border), `AppBackground` (page gradient + accent veil orbs, wraps the AppShell body), `GlassButton` (variants primary/secondary/ghost/destructive), `GlassChip`, `GlassField`, `GlassToggle`, `GradientText`, `GradientIconTile`, `GlassModalShell`, `showGlassModal()`. |
+
+`ThemeData` sets `dialogTheme` / `popupMenuTheme` / `bottomSheetTheme` to an opaque deep-navy fill (`BudgetColors.bgGrad[1]`). Without those, Material's defaults inherit the translucent `ColorScheme.surface` (= `glass1`) and render see-through over the page gradient.
+
+Modal dialogs (category edit, transaction edit, save-to-dashboard, new-dashboard, etc.) share a single visual pattern: `Dialog(backgroundColor: Colors.transparent)` → `GlassSurface(tier: strong, radius: 24)` → header (border-bottom, title + close pill) → scrollable body → optional footer (glass-1 bg, border-top, action buttons). When you need to add a new modal, follow that pattern — the form modals and the insights modals all wrap it.
 
 ## Service clients
 
@@ -80,7 +95,7 @@ The smoke test mounts `BudgetTraceApp`. It does *not* hit the backend, so it pas
 
 ## Feature flags
 
-`BudgetTraceApp` ([lib/main.dart](../frontend/lib/main.dart)) calls `GET /me` on startup and holds the resulting `Me` (features + theme + providers + `lastDashboardId`). Today's flag-driven UI:
+`BudgetTraceApp` ([lib/main.dart](../frontend/lib/main.dart)) calls `GET /me` on startup and holds the resulting `Me` (features + providers + `lastDashboardId`). `Me.theme` is still on the wire but ignored — the app forces `themeMode: ThemeMode.dark`. Today's flag-driven UI:
 
 - `ai: true` — Insights chat is enabled; Dropzone shows a **Use AI parsing** toggle (off by default per upload, opt-in); auto-categorize runs after every successful import.
 - `widgets: true` (default on) — the Widgets tab is reachable. When false, it's filtered out of the nav and the dashboards REST surface 403s.

@@ -1,7 +1,12 @@
-# Budget Trace docs
+# Expense Visualizer docs
 
 Pick-up notes for whoever (human or AI) needs to work on this app next. Each
 file answers one specific question — start with whichever matches your task.
+
+The user-facing brand is **Expense Visualizer**; internal package names
+(`budget_trace_backend`, `budget_trace` Dart package, the `budget-trace` repo
+folder) keep the legacy `budget_trace` identifier. When you see "Budget Trace"
+in code, it's almost always one of those internal identifiers.
 
 | File | When to read |
 |------|--------------|
@@ -11,15 +16,15 @@ file answers one specific question — start with whichever matches your task.
 | [upload.md](upload.md) | CSV format, dedupe semantics, AI parser + auto-categorize. |
 | [insights-ai.md](insights-ai.md) | Touching the AI chat loop, MCP tool surface, prompt, response shape. |
 | [widgets.md](widgets.md) | Dashboards, widgets, the metric registry, saved insights, drag/resize. |
-| [account.md](account.md) | The `/me` settings surface — feature flags, API key, theme, auth-TODO. |
+| [account.md](account.md) | The `/me` settings surface — feature flags, API key, auth-TODO. |
 | [backend.md](backend.md) | Working in `backend/` — running it, env vars, schema, seed, ports. |
-| [frontend.md](frontend.md) | Working in `frontend/` — service clients, chart slot, `--dart-define` knobs. |
+| [frontend.md](frontend.md) | Working in `frontend/` — service clients, glass-morphism visual layer, chart slot, `--dart-define` knobs. |
 | [data-model.md](data-model.md) | SQLite schema + ERD, category-path conventions, what the seed actually generates. |
 | [conventions.md](conventions.md) | Cross-cutting things that are easy to get wrong: date format, path separator, JSON casing. |
 
 ## What this app is
 
-Budget Trace is a category + AI-insights app for personal expenses. Four tabs:
+Expense Visualizer is a category + AI-insights app for personal expenses. Four tabs:
 
 1. **Categories** — editable tree of spending categories, each with a description that doubles as the AI's classification hint. Backed by `GET/POST/PATCH/DELETE /categories`.
 2. **Expenses** — list of transactions with category assignment, per-row edit, bulk-rename, hard delete, and a CSV upload dropzone with hash-based dedupe. Backed by `GET/POST/PATCH/DELETE /transactions` + `POST /transactions/import`.

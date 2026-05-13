@@ -5,16 +5,16 @@ import '../services/me_client.dart';
 import '../theme/app_theme.dart';
 import '../widgets/ai_spend_chip.dart';
 import '../widgets/budget_card.dart';
+import '../widgets/cat_icon.dart';
 
-/// Single-user settings page. Two sections:
-///   • Appearance   — system / light / dark (top of the screen, always visible)
+/// Single-user settings page. One section:
 ///   • AI features  — collapsible card holding the master toggle and, when
 ///                    AI is on, one API-key row per known provider, the
 ///                    estimated-spend chip, and the model picker.
 ///
 /// Every control bubbles its update through `MeClient.update()` immediately
 /// and calls [onMeChanged] with the resulting [Me] so the parent rebuilds
-/// with the new theme + flags.
+/// with the new flags.
 class AccountScreen extends StatefulWidget {
   const AccountScreen({
     super.key,
@@ -144,14 +144,6 @@ class _AccountScreenState extends State<AccountScreen> {
             _ErrorBanner(message: _error!),
           ],
           const SizedBox(height: 16),
-          _Section(
-            label: 'Appearance',
-            child: _ThemeRow(
-              value: _me.theme,
-              onChanged: (v) => _patch(theme: v),
-            ),
-          ),
-          const SizedBox(height: 16),
           _ExpandableSection(
             label: 'AI features',
             // The master toggle is always the first row inside the dropdown.
@@ -207,30 +199,6 @@ class _AccountScreenState extends State<AccountScreen> {
           ),
         ],
       ),
-    );
-  }
-}
-
-class _Section extends StatelessWidget {
-  const _Section({required this.label, required this.child});
-
-  final String label;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: BudgetLabel(label),
-        ),
-        BudgetCard(
-          padding: const EdgeInsets.all(16),
-          child: child,
-        ),
-      ],
     );
   }
 }
@@ -539,11 +507,11 @@ class _ApiKeyRow extends StatelessWidget {
                       borderRadius: BudgetRadius.inputBR),
                   suffixIcon: IconButton(
                     tooltip: showKey ? 'Hide' : 'Show',
-                    icon: Icon(
-                      showKey
-                          ? Icons.visibility_off_outlined
-                          : Icons.visibility_outlined,
-                      size: 18,
+                    icon: BudgetIcons.build(
+                      showKey ? 'eye-off' : 'eye',
+                      size: 16,
+                      strokeWidth: 1.6,
+                      color: bt.ink3,
                     ),
                     onPressed: onToggleVisibility,
                   ),
@@ -585,16 +553,16 @@ class _StatusPill extends StatelessWidget {
   Widget build(BuildContext context) {
     final bt = context.bt;
     final (label, fg, bg) = provider.apiKeySet
-        ? ('Stored', bt.pos, bt.pos.withValues(alpha: 0.12))
+        ? ('Stored', bt.pos, bt.posBg)
         : (provider.envFallback
-            ? ('Env', bt.ink2, bt.surface2)
-            : ('Not set', bt.ink4, bt.surface2));
+            ? ('Env', bt.ink2, bt.glass2)
+            : ('Not set', bt.ink4, bt.glass2));
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: bg,
         borderRadius: BudgetRadius.chipBR,
-        border: Border.all(color: bt.ruleStrong),
+        border: Border.all(color: provider.apiKeySet ? bt.posBorder : bt.glassBorder),
       ),
       child: Text(
         label,
@@ -788,59 +756,3 @@ class _ModelMenuItem extends StatelessWidget {
   }
 }
 
-class _ThemeRow extends StatelessWidget {
-  const _ThemeRow({required this.value, required this.onChanged});
-
-  final String value;
-  final ValueChanged<String> onChanged;
-
-  static const _options = [
-    (key: 'system', label: 'System'),
-    (key: 'light', label: 'Light'),
-    (key: 'dark', label: 'Dark'),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final bt = context.bt;
-    return Container(
-      decoration: BoxDecoration(
-        color: bt.surface2,
-        borderRadius: BudgetRadius.btnBR,
-        border: Border.all(color: bt.ruleStrong),
-      ),
-      padding: const EdgeInsets.all(3),
-      child: Row(
-        children: _options.map((opt) {
-          final active = opt.key == value;
-          return Expanded(
-            child: GestureDetector(
-              onTap: active ? null : () => onChanged(opt.key),
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.symmetric(vertical: 9),
-                decoration: BoxDecoration(
-                  color: active ? bt.surface : Colors.transparent,
-                  borderRadius: const BorderRadius.all(Radius.circular(9)),
-                  border: Border.all(
-                    color: active ? bt.rule : Colors.transparent,
-                  ),
-                ),
-                child: Center(
-                  child: Text(
-                    opt.label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-                      color: active ? bt.ink : bt.ink3,
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}
