@@ -120,7 +120,7 @@ class _TreemapTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final pct = total > 0 ? (value / total) * 100 : 0.0;
     final tooltip =
-        '$label\n\$${fmtMoneyDecimal(value)}   ${pct.toStringAsFixed(1)}%';
+        '$label\n${moneyDecimal(value)}   ${pct.toStringAsFixed(1)}%';
 
     final tile = Container(
       decoration: BoxDecoration(
@@ -155,7 +155,7 @@ class _TreemapTile extends StatelessWidget {
                     ),
                   ),
                   Text(
-                    '\$${fmtMoneyDecimal(value)}',
+                    moneyDecimal(value),
                     style: const TextStyle(
                       fontSize: 10,
                       color: Colors.white,

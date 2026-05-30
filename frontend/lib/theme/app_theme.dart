@@ -518,6 +518,25 @@ ThemeData buildTheme() {
         side: BorderSide(color: BudgetColors.glassBorderStrong),
       ),
     ),
+    // showDateRangePicker / showDatePicker default to `ColorScheme.surface`
+    // for the dialog body — same translucency trap. Pin every layer
+    // (dialog body, header, range-picker body, range-picker header) to the
+    // opaque deep-navy used by AlertDialog so the picker reads as a
+    // solid sheet over the page gradient.
+    datePickerTheme: DatePickerThemeData(
+      backgroundColor: BudgetColors.bgGrad[1],
+      surfaceTintColor: Colors.transparent,
+      elevation: 12,
+      headerBackgroundColor: BudgetColors.bgGrad[1],
+      headerForegroundColor: BudgetColors.ink,
+      rangePickerBackgroundColor: BudgetColors.bgGrad[1],
+      rangePickerSurfaceTintColor: Colors.transparent,
+      rangePickerHeaderBackgroundColor: BudgetColors.bgGrad[1],
+      rangePickerHeaderForegroundColor: BudgetColors.ink,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(18)),
+      ),
+    ),
     extensions: const [bt],
   );
 }

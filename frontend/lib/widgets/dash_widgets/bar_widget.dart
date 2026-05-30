@@ -43,7 +43,7 @@ class BarWidgetBody extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  '\$${fmtMoneyDecimal(it.value)}',
+                  moneyDecimal(it.value),
                   style: TextStyle(
                     fontSize: 12, color: bt.ink3,
                     fontFeatures: const [FontFeature.tabularFigures()],

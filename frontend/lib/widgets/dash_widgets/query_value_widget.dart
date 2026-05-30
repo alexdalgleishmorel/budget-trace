@@ -73,7 +73,7 @@ class QueryValueWidgetBody extends StatelessWidget {
 String _formatValue(double v, String fmt) {
   switch (fmt) {
     case 'currency':
-      return '\$${fmtMoneyDecimal(v)}';
+      return moneyDecimal(v);
     case 'percent':
       return '${v.toStringAsFixed(1)}%';
     case 'number':

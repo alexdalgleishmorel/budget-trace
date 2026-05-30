@@ -665,6 +665,7 @@ class _ModelRow extends StatelessWidget {
           key: ValueKey(me.selectedModel),
           initialValue: me.selectedModel,
           isDense: true,
+          dropdownColor: BudgetColors.bgGrad[1],
           decoration: InputDecoration(
             isDense: true,
             border: OutlineInputBorder(borderRadius: BudgetRadius.inputBR),

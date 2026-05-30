@@ -414,6 +414,7 @@ class _AddWidgetDrawerState extends State<AddWidgetDrawer> {
         DropdownButtonFormField<String>(
           initialValue: _metricId,
           isExpanded: true,
+          dropdownColor: BudgetColors.bgGrad[1],
           decoration: const InputDecoration(
             labelText: 'Metric', isDense: true,
           ),
@@ -661,6 +662,7 @@ class _ParamField extends StatelessWidget {
       case 'enum':
         control = DropdownButtonFormField<String>(
           initialValue: value as String? ?? field['default'] as String?,
+          dropdownColor: BudgetColors.bgGrad[1],
           decoration: InputDecoration(labelText: label, isDense: true),
           items: [
             for (final o in (field['options'] as List).cast<String>())
@@ -688,6 +690,7 @@ class _ParamField extends StatelessWidget {
         control = DropdownButtonFormField<String?>(
           initialValue: knownValue,
           isExpanded: true,
+          dropdownColor: BudgetColors.bgGrad[1],
           decoration: InputDecoration(labelText: label, isDense: true),
           items: [
             DropdownMenuItem<String?>(

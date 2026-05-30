@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../models/budget_category.dart';
 import '../models/transaction.dart';
 import '../theme/app_theme.dart';
+import '../utils/format.dart';
 import '../utils/leaf_categories.dart';
 import 'cat_icon.dart';
 import 'glass.dart';
@@ -206,7 +207,7 @@ class _TransactionEditModalState extends State<TransactionEditModal> {
                                     color: bt.ink3)),
                             const Spacer(),
                             Text(
-                              '\$${widget.transaction.amount.toStringAsFixed(2)}',
+                              moneyDecimal(widget.transaction.amount),
                               style: TextStyle(
                                   fontFamily: 'monospace',
                                   fontSize: 13,
@@ -415,7 +416,7 @@ class _CategoryDropdown extends StatelessWidget {
           isExpanded: true,
           icon: BudgetIcons.build('chevron-down',
               size: 14, strokeWidth: 2, color: bt.ink3),
-          dropdownColor: bt.surface,
+          dropdownColor: BudgetColors.bgGrad[1],
           style: TextStyle(fontSize: 14, color: bt.ink),
           onChanged: onChange,
           items: values

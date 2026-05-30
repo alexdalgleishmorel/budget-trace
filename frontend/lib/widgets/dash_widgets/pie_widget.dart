@@ -121,7 +121,7 @@ class _PieWidgetBodyState extends State<PieWidgetBody> {
                               mainAxisSize: MainAxisSize.min,
                               children: [
                                 Text(
-                                  '\$${fmtMoney(total)}',
+                                  money(total),
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
@@ -159,7 +159,7 @@ class _PieWidgetBodyState extends State<PieWidgetBody> {
                                     _hoveredIndex! % palette.length],
                                 label: items[_hoveredIndex!].label,
                                 value:
-                                    '\$${fmtMoneyDecimal(items[_hoveredIndex!].value)}',
+                                    moneyDecimal(items[_hoveredIndex!].value),
                                 trailing: total == 0
                                     ? null
                                     : '${(items[_hoveredIndex!].value / total * 100).toStringAsFixed(1)}%',

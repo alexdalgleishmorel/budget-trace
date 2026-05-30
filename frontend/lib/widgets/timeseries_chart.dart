@@ -176,7 +176,7 @@ class _TimeseriesChartState extends State<TimeseriesChart> {
   }
 
   String _fmtY(double v) {
-    if (v.abs() >= 1000) return '\$${fmtMoney(v)}';
+    if (v.abs() >= 1000) return money(v);
     if (v == v.roundToDouble()) return v.toStringAsFixed(0);
     return v.toStringAsFixed(2);
   }

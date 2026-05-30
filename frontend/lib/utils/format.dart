@@ -18,3 +18,13 @@ String fmtMoneyDecimal(num v) {
   final dot = s.indexOf('.');
   return _addCommas(s.substring(0, dot)) + s.substring(dot);
 }
+
+/// Currency prefix for displayed budget amounts. All transaction/budget
+/// figures are in Canadian dollars; "CA$" disambiguates from USD.
+const String kMoneySymbol = 'CA\$';
+
+/// Whole-dollar CAD amount. Example: 1234567 → "CA$1,234,567".
+String money(num v) => '$kMoneySymbol${fmtMoney(v)}';
+
+/// Two-decimal CAD amount. Example: 1234.5 → "CA$1,234.50".
+String moneyDecimal(num v) => '$kMoneySymbol${fmtMoneyDecimal(v)}';

@@ -252,7 +252,7 @@ class _MobileExpenses extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                    Text('\$${fmtMoney(total)}',
+                    Text(money(total),
                         style: TextStyle(fontFamily: 'monospace', fontSize: 28, fontWeight: FontWeight.w500,
                             letterSpacing: -0.02, color: bt.ink)),
                     const SizedBox(width: 10),
@@ -470,7 +470,7 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
               Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
                 BudgetLabel('Total spent'),
                 const SizedBox(height: 2),
-                Text('\$${fmtMoney(widget.total)}',
+                Text(money(widget.total),
                     style: TextStyle(fontFamily: 'monospace', fontSize: 30,
                         fontWeight: FontWeight.w500, letterSpacing: -0.02, color: bt.ink)),
               ]),
@@ -647,7 +647,7 @@ class _TxnRow extends StatelessWidget {
                         style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.w500, color: bt.ink),
                         overflow: TextOverflow.ellipsis),
                     const SizedBox(height: 2),
-                    Text('${txn.date} · \$${fmtMoneyDecimal(txn.amount)}',
+                    Text('${txn.date} · ${moneyDecimal(txn.amount)}',
                         style: TextStyle(fontFamily: 'monospace', fontSize: 11, color: bt.ink4)),
                   ],
                 ),
@@ -850,7 +850,7 @@ class _TableRow extends StatelessWidget {
           ),
           SizedBox(
             width: 100,
-            child: Text('\$${fmtMoneyDecimal(txn.amount)}',
+            child: Text(moneyDecimal(txn.amount),
                 style: TextStyle(fontFamily: 'monospace', fontSize: 14,
                     fontWeight: FontWeight.w500, color: bt.ink),
                 textAlign: TextAlign.right),

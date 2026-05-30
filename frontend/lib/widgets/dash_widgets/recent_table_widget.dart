@@ -80,7 +80,7 @@ class RecentTableWidgetBody extends StatelessWidget {
     if (v == null) {
       text = '—';
     } else if (fmt == 'currency') {
-      text = '\$${fmtMoneyDecimal((v as num).toDouble())}';
+      text = moneyDecimal((v as num).toDouble());
     } else if (fmt == 'number') {
       text = fmtMoney((v as num).toDouble());
     } else {
