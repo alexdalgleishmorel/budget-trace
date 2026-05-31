@@ -39,7 +39,9 @@ jobs:
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
-          flutter-version: 3.35.0
+          # Must ship Dart >= 3.11.5 (see frontend/pubspec.yaml). 3.35.0 ships
+          # Dart 3.9 and fails `pub get`. Matches the local dev SDK.
+          flutter-version: 3.41.9
 
       - run: flutter pub get
       - run: flutter analyze
