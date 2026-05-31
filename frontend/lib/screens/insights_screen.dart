@@ -6,6 +6,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/dashboard.dart';
+import '../services/api_base.dart';
 import '../services/chat_client.dart';
 import '../services/dashboards_client.dart';
 import '../theme/app_theme.dart';
@@ -484,6 +485,13 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 showSpend: _activeSessionId != null || _sessionSpentUsd > 0,
               ),
             ),
+            if (kDemoMode)
+              Padding(
+                padding: isDesktop
+                    ? const EdgeInsets.fromLTRB(24, 0, 24, 8)
+                    : const EdgeInsets.fromLTRB(18, 0, 18, 8),
+                child: const _DemoAiNotice(),
+              ),
             Expanded(
               child: _ChatPanel(
                 isDesktop: isDesktop,
@@ -520,6 +528,34 @@ class _InsightsScreenState extends State<InsightsScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+/// Persistent strip shown in the demo build to make clear the AI is mocked —
+/// replies are scripted examples, not a live model.
+class _DemoAiNotice extends StatelessWidget {
+  const _DemoAiNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    return GlassSurface(
+      tier: GlassTier.t2,
+      radius: 10,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child: Row(
+        children: [
+          BudgetIcons.build('sparkle', size: 14, color: bt.accent),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Demo mode: AI responses are pre-written examples, not a live model.',
+              style: TextStyle(color: bt.ink2, fontSize: 12, height: 1.3),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

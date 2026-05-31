@@ -40,7 +40,7 @@ class CategoryDto {
 }
 
 class CategoriesClient {
-  CategoriesClient({http.Client? client}) : _client = client ?? http.Client();
+  CategoriesClient({http.Client? client}) : _client = client ?? makeHttpClient();
 
   final http.Client _client;
 

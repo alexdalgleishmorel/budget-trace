@@ -9,6 +9,22 @@ const String apiBaseUrl = String.fromEnvironment(
   defaultValue: 'http://localhost:8000',
 );
 
+/// Whether this build is the static, backend-less demo. Set at build time:
+///   flutter build web --dart-define=DEMO_MODE=true
+/// When false (the default), the app behaves normally and talks to a real
+/// backend at [apiBaseUrl].
+const bool kDemoMode = bool.fromEnvironment('DEMO_MODE', defaultValue: false);
+
+/// Optional override for the [http.Client] every service client uses. The demo
+/// build sets this from its bootstrap to swap in an in-memory mock client; on a
+/// normal build it stays null and clients use a real [http.Client]. Kept
+/// generic on purpose so this file never imports demo-only code.
+http.Client Function()? httpClientOverride;
+
+/// Build the [http.Client] a service client should use when one isn't injected.
+/// Returns the demo override when present, otherwise a real client.
+http.Client makeHttpClient() => httpClientOverride?.call() ?? http.Client();
+
 /// Backend error envelope shape: `{error: {code, message, details?}}`.
 class ApiException implements Exception {
   ApiException({required this.statusCode, required this.code, required this.message});

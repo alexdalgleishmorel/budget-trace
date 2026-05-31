@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../models/chat_message.dart';
 import '../models/chat_session.dart';
 import '../models/dashboard.dart';
+import 'api_base.dart';
 
 /// Talks to the backend's `/chat/sessions` REST surface.
 ///
@@ -15,15 +16,8 @@ import '../models/dashboard.dart';
 ///   - append a user turn and receive the assistant's reply in one round-trip.
 class ChatClient {
   ChatClient({String? baseUrl})
-      : _baseUrl = baseUrl ?? _defaultBaseUrl,
-        _client = http.Client();
-
-  /// Override at build time:
-  /// `flutter run --dart-define=API_BASE_URL=http://localhost:8000`
-  static const _defaultBaseUrl = String.fromEnvironment(
-    'API_BASE_URL',
-    defaultValue: 'http://localhost:8000',
-  );
+      : _baseUrl = baseUrl ?? apiBaseUrl,
+        _client = makeHttpClient();
 
   final String _baseUrl;
   final http.Client _client;

@@ -224,7 +224,7 @@ class Me {
 }
 
 class MeClient {
-  MeClient({http.Client? client}) : _client = client ?? http.Client();
+  MeClient({http.Client? client}) : _client = client ?? makeHttpClient();
 
   final http.Client _client;
 

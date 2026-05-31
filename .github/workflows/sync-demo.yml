@@ -1,0 +1,51 @@
+name: Sync demo branch
+
+# Keeps the long-lived `demo` branch up to date with `main`. The demo branch is
+# `main` plus the static-demo commits (the in-memory mock backend, seed asset and
+# Pages deploy workflow). Because main only carries an inert seam (the
+# DEMO_MODE-gated hooks), this merge is normally conflict-free. If it ever does
+# conflict, the run fails loudly rather than forcing anything — resolve by hand.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-demo
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge main into demo
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Bail out gracefully if the demo branch doesn't exist yet — it must
+          # be created from main (with the demo commits) before this can run.
+          if ! git ls-remote --exit-code --heads origin demo >/dev/null 2>&1; then
+            echo "::warning::No 'demo' branch on origin yet — nothing to sync."
+            exit 0
+          fi
+
+          git checkout -B demo origin/demo
+          if git merge --no-edit origin/main; then
+            git push origin demo
+            echo "demo fast-forwarded/merged with main."
+          else
+            echo "::error::Merge conflict syncing main into demo. Resolve manually."
+            git merge --abort
+            exit 1
+          fi

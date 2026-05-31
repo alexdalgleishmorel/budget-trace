@@ -8,7 +8,7 @@ import 'api_base.dart';
 /// REST client for the Widgets feature. Mirrors the snake_case API surface
 /// in `routes/dashboards.py` — see [docs/rest-api.md] when adding methods.
 class DashboardsClient {
-  DashboardsClient({http.Client? client}) : _client = client ?? http.Client();
+  DashboardsClient({http.Client? client}) : _client = client ?? makeHttpClient();
 
   final http.Client _client;
   static const _jsonHeaders = {'Content-Type': 'application/json'};

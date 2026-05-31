@@ -14,6 +14,7 @@ import '../services/transactions_client.dart';
 import '../theme/app_theme.dart';
 import '../utils/cycle_labels.dart';
 import 'bottom_tabs.dart';
+import 'demo_banner.dart';
 import 'glass.dart';
 import 'side_nav.dart';
 
@@ -291,18 +292,25 @@ class _AppShellState extends State<AppShell> {
           return Scaffold(
             backgroundColor: Colors.transparent,
             body: AppBackground(
-              child: Row(
+              child: Column(
                 children: [
-                  SideNav(
-                    current: _tab,
-                    onNav: _onNav,
-                    cycleLabel: _cycleLabel,
-                    cycleLabels: _cycleLabels,
-                    onCycleChange: _onCycleChange,
-                    onOpenAccount: _openAccount,
-                    showWidgets: widget.me.features.widgets,
+                  const DemoBanner(),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        SideNav(
+                          current: _tab,
+                          onNav: _onNav,
+                          cycleLabel: _cycleLabel,
+                          cycleLabels: _cycleLabels,
+                          onCycleChange: _onCycleChange,
+                          onOpenAccount: _openAccount,
+                          showWidgets: widget.me.features.widgets,
+                        ),
+                        Expanded(child: _buildScreen(_tab)),
+                      ],
+                    ),
                   ),
-                  Expanded(child: _buildScreen(_tab)),
                 ],
               ),
             ),

@@ -47,7 +47,7 @@ class TransactionDto {
 }
 
 class TransactionsClient {
-  TransactionsClient({http.Client? client}) : _client = client ?? http.Client();
+  TransactionsClient({http.Client? client}) : _client = client ?? makeHttpClient();
 
   final http.Client _client;
 
