@@ -27,41 +27,65 @@ void main() {
     expect(me['last_dashboard_id'], isNotNull);
   });
 
-  test('default dashboard widgets all resolve data', () {
-    final dash = b.getDashboard(1);
-    final widgets = (dash['widgets'] as List).cast<Map<String, dynamic>>();
-    expect(widgets.length, 6);
-    for (final w in widgets) {
-      final data = b.getWidgetData(1, w['id'] as int);
-      expect(data['type'], w['type']);
-      expect(data['data'], isA<Map>());
-      final payload = data['data'] as Map;
-      switch (w['type']) {
-        case 'pie':
-          expect(payload['slices'], isA<List>());
-          expect((payload['slices'] as List), isNotEmpty);
-        case 'bar':
-          expect((payload['categories'] as List), isNotEmpty);
-        case 'timeseries':
-          expect((payload['chart'] as Map)['series'], isA<List>());
-        case 'query_value':
-          expect(payload['value'], isA<num>());
-        case 'table':
-          expect(payload['columns'], isA<List>());
-          expect(payload['rows'], isA<List>());
+  test('example dashboards have distinct names and all widgets resolve', () {
+    final dashboards = b.listDashboards();
+    expect(dashboards.length, greaterThanOrEqualTo(2));
+    final names = dashboards.map((d) => d['name'] as String).toSet();
+    expect(names.length, dashboards.length, reason: 'names should be distinct');
+
+    for (final summary in dashboards) {
+      final dash = b.getDashboard(summary['id'] as int);
+      final widgets = (dash['widgets'] as List).cast<Map<String, dynamic>>();
+      expect(widgets, isNotEmpty);
+      for (final w in widgets) {
+        final data = b.getWidgetData(dash['id'] as int, w['id'] as int);
+        expect(data['type'], w['type']);
+        final payload = data['data'] as Map;
+        switch (w['type']) {
+          case 'pie':
+            expect((payload['slices'] as List), isNotEmpty);
+          case 'bar':
+            expect((payload['categories'] as List), isNotEmpty);
+          case 'treemap':
+            expect((payload['nodes'] as List), isNotEmpty);
+          case 'timeseries':
+            expect((payload['chart'] as Map)['series'], isA<List>());
+          case 'query_value':
+            expect(payload['value'], isA<num>());
+          case 'table':
+            expect(payload['columns'], isA<List>());
+            expect(payload['rows'], isA<List>());
+        }
       }
     }
   });
 
+  test('default categories match the app default tree', () {
+    final paths = b.listCategories().map((c) => c['path'] as String).toSet();
+    expect(paths, containsAll(['Grocery', 'Dining Out', 'Car', 'Car / Gas']));
+    // The fixture "House / Living / Savings" tree must be gone.
+    expect(paths.any((p) => p.startsWith('Living')), isFalse);
+  });
+
   test('category filter and date window narrow results', () {
     final all = b.listTransactions({'limit': '500'});
-    final grocery =
-        b.listTransactions({'limit': '500', 'category_path': 'Living / Grocery'});
+    final grocery = b.listTransactions({'limit': '500', 'category_path': 'Grocery'});
     expect(grocery.length, lessThan(all.length));
-    expect(grocery.every((t) => t['category_path'] == 'Living / Grocery'), true);
+    expect(grocery.every((t) => t['category_path'] == 'Grocery'), true);
 
     final uncategorised = b.listTransactions({'limit': '500', 'uncategorised': 'true'});
     expect(uncategorised.every((t) => t['category_id'] == null), true);
+  });
+
+  test('upload is mocked: success, and the dataset is not mutated', () {
+    final before = b.listTransactions({'limit': '500'}).length;
+    final csv = 'date,merchant,amount\n2026-01-01,TEST CAFE,12.50\n2026-01-02,TEST SHOP,40.00\n';
+    final res = b.importCsv(csv.codeUnits);
+    expect(res['rows_failed'], 0);
+    expect(res['rows_inserted'], res['rows_parsed']);
+    expect(res['rows_inserted'], 2);
+    // No real data added.
+    expect(b.listTransactions({'limit': '500'}).length, before);
   });
 
   test('interactive mutation: create + delete a category', () {

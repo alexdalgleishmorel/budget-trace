@@ -74,7 +74,7 @@ ScriptedReply buildScriptedReply(
           'tends to climb around the holidays and settle again in spring — a '
           'common seasonal pattern.'),
       _widget(cats, txns, 'timeseries', 'Grocery spend by month', 'spend_over_time',
-          {'rollup_period': 'month', 'category_path': 'Living / Grocery'}),
+          {'rollup_period': 'month', 'category_path': 'Grocery'}),
     );
   }
   if (t.contains('merchant') || t.contains('where') || t.contains('who')) {

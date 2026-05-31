@@ -46,7 +46,6 @@ class DemoBackend {
   Map<String, dynamic> _widgetMetrics = const {};
 
   int _categoryId = 0;
-  int _txnId = 0;
   int _dashboardId = 0;
   int _widgetId = 0;
   int _sessionId = 0;
@@ -78,51 +77,64 @@ class DemoBackend {
     _widgetMetrics = Map<String, dynamic>.from(data['widget_metrics'] as Map);
 
     _categoryId = _categories.fold<int>(0, (a, c) => (c['id'] as int) > a ? c['id'] as int : a);
-    _txnId = _txns.fold<int>(0, (a, t) => (t['id'] as int) > a ? t['id'] as int : a);
     final ids = {for (final c in _categories) c['id'] as int};
     final parents = {for (final c in _categories) c['parent_id'] as int?};
     _rootId = parents.firstWhere((p) => p != null && !ids.contains(p), orElse: () => 1) ?? 1;
 
-    _seedDefaultDashboard();
+    _seedDashboards();
     _initMe();
     _loaded = true;
   }
 
-  /// Build one populated "Overview" dashboard so the Widgets tab isn't empty
-  /// on first load. Showcases every widget type over the full sample window.
-  void _seedDefaultDashboard() {
-    Map<String, dynamic> w(String type, String metricId, Map<String, dynamic> params,
-        List<int> xywh) {
-      final ds = {'kind': 'metric', 'metric_id': metricId, 'params': params};
+  /// Seed a few populated, distinctly-named example dashboards so the Widgets
+  /// tab isn't empty on first load and showcases every widget type / metric.
+  void _seedDashboards() {
+    Map<String, dynamic> w(int dashId, String type, String metricId,
+        Map<String, dynamic> params, List<int> xywh) {
       return {
         'id': ++_widgetId,
-        'dashboard_id': 1,
+        'dashboard_id': dashId,
         'type': type,
         'title': _deriveTitleStatic(type, metricId),
         'layout': {'x': xywh[0], 'y': xywh[1], 'w': xywh[2], 'h': xywh[3]},
-        'data_source': ds,
+        'data_source': {'kind': 'metric', 'metric_id': metricId, 'params': params},
         'config': const {},
         'created_at': _ts,
         'updated_at': _ts,
       };
     }
 
-    _dashboardId = 1;
-    _dashboards.add({
-      'id': 1,
-      'name': 'Overview',
-      'time_range': {'preset': 'last_12_months'},
-      'created_at': _ts,
-      'updated_at': _ts,
-      'widgets': [
-        w('query_value', 'total_spend', {'compare_to_previous': true}, [0, 0, 2, 2]),
-        w('query_value', 'transaction_count', {}, [2, 0, 2, 2]),
-        w('pie', 'spend_by_category', {}, [4, 0, 2, 2]),
-        w('timeseries', 'spend_over_time', {'rollup_period': 'month'}, [0, 2, 3, 2]),
-        w('bar', 'top_merchants', {'limit': 8}, [3, 2, 3, 2]),
-        w('table', 'recent_transactions', {'limit': 8}, [0, 4, 3, 2]),
-      ],
-    });
+    void dash(int id, String name, String preset, List<Map<String, dynamic>> widgets) {
+      _dashboards.add({
+        'id': id,
+        'name': name,
+        'time_range': {'preset': preset},
+        'created_at': _ts,
+        'updated_at': _ts,
+        'widgets': widgets,
+      });
+    }
+
+    dash(1, 'Monthly Overview', 'last_12_months', [
+      w(1, 'query_value', 'total_spend', {'compare_to_previous': true}, [0, 0, 2, 2]),
+      w(1, 'query_value', 'transaction_count', {}, [2, 0, 2, 2]),
+      w(1, 'pie', 'spend_by_category', {}, [4, 0, 2, 2]),
+      w(1, 'timeseries', 'spend_over_time', {'rollup_period': 'month'}, [0, 2, 3, 2]),
+      w(1, 'table', 'recent_transactions', {'limit': 8}, [3, 2, 3, 2]),
+    ]);
+    dash(2, 'Category Breakdown', 'last_6_months', [
+      w(2, 'treemap', 'spend_by_category', {}, [0, 0, 3, 2]),
+      w(2, 'bar', 'spend_by_category', {}, [3, 0, 3, 2]),
+      w(2, 'table', 'spend_by_category', {}, [0, 2, 3, 2]),
+      w(2, 'query_value', 'average_per_period', {'rollup_period': 'month'}, [3, 2, 2, 2]),
+    ]);
+    dash(3, 'Merchants & Forecast', 'last_12_months', [
+      w(3, 'pie', 'top_merchants', {'limit': 8}, [0, 0, 3, 2]),
+      w(3, 'bar', 'top_merchants', {'limit': 10}, [3, 0, 3, 2]),
+      w(3, 'timeseries', 'spend_forecast', {'horizon_months': 3, 'method': 'trailing_avg'}, [0, 2, 3, 2]),
+      w(3, 'query_value', 'total_spend', {'compare_to_previous': true}, [3, 2, 2, 2]),
+    ]);
+    _dashboardId = 3;
   }
 
   String _deriveTitleStatic(String type, String metricId) {
@@ -407,56 +419,31 @@ class DemoBackend {
     return {'updated': n};
   }
 
-  /// Minimal CSV import — date / merchant / amount columns, comma-separated.
-  /// Imported rows land uncategorised (the demo skips AI auto-categorize).
+  /// Mocked import. The demo never mutates its dataset on upload — it just
+  /// counts the rows in the file and reports them all as successfully added.
+  /// The UI shows a clear "no real data was uploaded" note (kDemoMode). This
+  /// keeps the upload flow demoable while staying honest about being a mock.
   Map<String, dynamic> importCsv(List<int> bytes) {
     final text = utf8.decode(bytes, allowMalformed: true);
-    final lines = const LineSplitter().convert(text).where((l) => l.trim().isNotEmpty).toList();
-    var parsed = 0, inserted = 0, failed = 0;
-    final errors = <Map<String, dynamic>>[];
-    if (lines.isEmpty) {
-      return _importResult(0, 0, 0, errors);
-    }
-    final header = lines.first.split(',').map((h) => h.trim().toLowerCase()).toList();
-    final dateIdx = header.indexWhere((h) => h.contains('date'));
-    final merchantIdx = header.indexWhere((h) => h.contains('merchant') || h.contains('description') || h.contains('name'));
-    final amountIdx = header.indexWhere((h) => h.contains('amount') || h.contains('debit') || h.contains('total'));
-    final hasHeader = dateIdx >= 0 || amountIdx >= 0;
-    final dataLines = hasHeader ? lines.skip(1) : lines;
-    for (final line in dataLines) {
-      parsed++;
-      final cells = line.split(',');
-      try {
-        final di = dateIdx >= 0 ? dateIdx : 0;
-        final mi = merchantIdx >= 0 ? merchantIdx : 1;
-        final ai = amountIdx >= 0 ? amountIdx : 2;
-        final date = cells[di].trim();
-        final merchant = cells[mi].trim();
-        final amount = double.parse(cells[ai].trim().replaceAll(RegExp(r'[^0-9.\-]'), ''));
-        _txns.add({
-          'id': ++_txnId,
-          'date': date,
-          'merchant': merchant,
-          'amount': amount,
-          'category_id': null,
-        });
-        inserted++;
-      } catch (_) {
-        failed++;
-      }
-    }
-    return _importResult(parsed, inserted, failed, errors);
+    final lines =
+        const LineSplitter().convert(text).where((l) => l.trim().isNotEmpty).toList();
+    if (lines.isEmpty) return _importResult(0);
+    // Treat a first row that looks like a header as non-data.
+    final first = lines.first.toLowerCase();
+    final hasHeader = first.contains('date') || first.contains('amount') ||
+        first.contains('merchant') || first.contains('description');
+    final rows = hasHeader ? lines.length - 1 : lines.length;
+    return _importResult(rows < 0 ? 0 : rows);
   }
 
-  Map<String, dynamic> _importResult(
-          int parsed, int inserted, int failed, List<Map<String, dynamic>> errors) =>
-      {
+  Map<String, dynamic> _importResult(int rows) => {
         'format_detected': 'csv',
-        'rows_parsed': parsed,
-        'rows_inserted': inserted,
+        // All-success mock: parsed == inserted, nothing failed or duplicated.
+        'rows_parsed': rows,
+        'rows_inserted': rows,
         'rows_skipped_duplicate': 0,
-        'rows_failed': failed,
-        'errors': errors,
+        'rows_failed': 0,
+        'errors': const [],
         'categorization': null,
       };
 
