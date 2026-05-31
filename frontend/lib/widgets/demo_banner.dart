@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../services/api_base.dart';
 import '../theme/app_theme.dart';
-import 'cat_icon.dart';
 import 'glass.dart';
 
 /// Where the explainer modal points people to run the real app.
@@ -12,9 +11,9 @@ const String kDemoRepoUrl =
 /// A slim, app-wide banner shown only in the static demo build ([kDemoMode]).
 ///
 /// Tapping it opens an explainer describing what the demo is, that nothing is
-/// persisted, that AI replies are scripted, and how to run the fully functional
-/// app locally via Docker. On a normal build it renders nothing, so it is safe
-/// to mount unconditionally in [AppShell].
+/// persisted, that AI replies and uploads are mocked, and how to run the fully
+/// functional app locally via Docker. On a normal build it renders nothing, so
+/// it is safe to mount unconditionally in [AppShell].
 class DemoBanner extends StatelessWidget {
   const DemoBanner({super.key});
 
@@ -37,8 +36,6 @@ class DemoBanner extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
               child: Row(
                 children: [
-                  BudgetIcons.build('sparkle', size: 16, color: bt.accent),
-                  const SizedBox(width: 10),
                   Expanded(
                     child: Text.rich(
                       TextSpan(children: [
@@ -51,7 +48,7 @@ class DemoBanner extends StatelessWidget {
                         ),
                         TextSpan(
                           text:
-                              'Data resets on reload and AI replies are scripted examples.',
+                              'Data resets on reload, and AI replies and upload results are mocked.',
                           style: TextStyle(color: bt.ink3),
                         ),
                       ]),
@@ -101,55 +98,65 @@ class _DemoInfoModal extends StatelessWidget {
       height: 1.45,
       fontWeight: FontWeight.w600,
     );
-    return GlassModalShell(
-      title: 'About this demo',
-      onClose: onClose,
-      footer: GlassButton(
-        label: 'Got it',
-        variant: GlassButtonVariant.primary,
-        expand: true,
-        onPressed: onClose,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'This is a static, browser-only demo of Expense Visualizer. There is '
-            'no real backend — the data, charts and account live entirely in '
-            'memory, so:',
-            style: bodyStyle,
-          ),
-          const SizedBox(height: 12),
-          _Bullet(
-            'Everything you change (categories, expenses, dashboards, widgets) '
-            'resets when you reload the page — nothing is saved.',
-          ),
-          _Bullet(
-            'The Insights AI is mocked: replies are pre-written examples, not a '
-            'live model. They are labelled as such in the chat.',
-          ),
-          _Bullet(
-            'The data is a generated 12-month sample, not real transactions.',
-          ),
-          const SizedBox(height: 18),
-          Text('Want the real thing?', style: headingStyle),
-          const SizedBox(height: 8),
-          Text(
-            'The fully functional app runs locally with Docker (real backend, '
-            'CSV/PDF import, and live AI once you add a provider key). Clone the '
-            'repository and follow the setup in its main README:',
-            style: bodyStyle,
-          ),
-          const SizedBox(height: 10),
-          SelectableText(
-            kDemoRepoUrl,
-            style: TextStyle(
-              color: bt.accent,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
+    // Wrap in a transparent Material so the modal's plain Text inherits a
+    // proper text style (otherwise Flutter paints the "no Material" yellow
+    // underline under unstyled text).
+    return Material(
+      type: MaterialType.transparency,
+      child: GlassModalShell(
+        title: 'About this demo',
+        onClose: onClose,
+        footer: GlassButton(
+          label: 'Got it',
+          variant: GlassButtonVariant.primary,
+          expand: true,
+          onPressed: onClose,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This is a static, browser-only demo of Expense Visualizer. There is '
+              'no real backend — the data, charts and account live entirely in '
+              'memory, so:',
+              style: bodyStyle,
             ),
-          ),
-        ],
+            const SizedBox(height: 12),
+            _Bullet(
+              'Everything you change (categories, expenses, dashboards, widgets) '
+              'resets when you reload the page — nothing is saved.',
+            ),
+            _Bullet(
+              'The Insights AI is mocked: replies are pre-written examples, not a '
+              'live model. They are labelled as such in the chat.',
+            ),
+            _Bullet(
+              'File uploads are mocked too: an import reports success, but no real '
+              'data is added.',
+            ),
+            _Bullet(
+              'The data is a generated sample, not real transactions.',
+            ),
+            const SizedBox(height: 18),
+            Text('Want the real thing?', style: headingStyle),
+            const SizedBox(height: 8),
+            Text(
+              'The fully functional app runs locally with Docker (real backend, '
+              'CSV/PDF import, and live AI once you add a provider key). Clone the '
+              'repository and follow the setup in its main README:',
+              style: bodyStyle,
+            ),
+            const SizedBox(height: 10),
+            SelectableText(
+              kDemoRepoUrl,
+              style: TextStyle(
+                color: bt.accent,
+                fontSize: 13.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
