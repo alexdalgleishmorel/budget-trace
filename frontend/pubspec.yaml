@@ -49,6 +49,9 @@ dependencies:
   # Markdown rendering for assistant chat replies.
   flutter_markdown: ^0.7.0
 
+  # Opening external links (e.g. the GitHub repo from the demo modal).
+  url_launcher: ^6.3.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter
