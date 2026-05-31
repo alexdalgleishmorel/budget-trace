@@ -26,7 +26,11 @@ class DemoBackend {
   DemoBackend._();
   static final DemoBackend instance = DemoBackend._();
 
-  bool _loaded = false;
+  // Memoised so concurrent first-load requests (GET /me, /categories,
+  // /dashboards all fire at startup) share a single load. With a plain bool
+  // guard, each request raced past it before loading finished and re-seeded,
+  // duplicating categories / transactions / dashboards.
+  Future<void>? _loading;
 
   /// CategoryOut-shaped maps: {id, name, description, parent_id, path,
   /// is_leaf, is_unknown, color}.
@@ -56,8 +60,9 @@ class DemoBackend {
 
   // ── Loading ────────────────────────────────────────────────────────────────
 
-  Future<void> ensureLoaded() async {
-    if (_loaded) return;
+  Future<void> ensureLoaded() => _loading ??= _load();
+
+  Future<void> _load() async {
     final raw = await rootBundle.loadString('assets/demo/seed.json');
     final data = jsonDecode(raw) as Map<String, dynamic>;
 
@@ -83,7 +88,6 @@ class DemoBackend {
 
     _seedDashboards();
     _initMe();
-    _loaded = true;
   }
 
   /// Seed a few populated, distinctly-named example dashboards so the Widgets

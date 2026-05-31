@@ -27,9 +27,17 @@ void main() {
     expect(me['last_dashboard_id'], isNotNull);
   });
 
+  test('concurrent loads do not duplicate seed data', () async {
+    // Mirrors app startup, where several requests call ensureLoaded() at once.
+    // The load must be memoised so nothing is seeded more than once.
+    await Future.wait([b.ensureLoaded(), b.ensureLoaded(), b.ensureLoaded()]);
+    expect(b.listDashboards().length, 3);
+    expect(b.listCategories().length, 12);
+  });
+
   test('example dashboards have distinct names and all widgets resolve', () {
     final dashboards = b.listDashboards();
-    expect(dashboards.length, greaterThanOrEqualTo(2));
+    expect(dashboards.length, 3);
     final names = dashboards.map((d) => d['name'] as String).toSet();
     expect(names.length, dashboards.length, reason: 'names should be distinct');
 
