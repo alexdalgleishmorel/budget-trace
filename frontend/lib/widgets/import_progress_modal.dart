@@ -412,6 +412,19 @@ class _PerFileRow extends StatelessWidget {
                 detail,
                 style: TextStyle(fontSize: 11, color: bt.ink4, height: 1.4),
               ),
+              if (kDemoMode && ok)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2),
+                  child: Text(
+                    'Demo: example result — no real data was uploaded.',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: bt.accent,
+                      fontStyle: FontStyle.italic,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
             ],
           ),
         ),
