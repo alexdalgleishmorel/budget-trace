@@ -18,8 +18,28 @@ class PieWidgetBody extends StatefulWidget {
 }
 
 class _PieWidgetBodyState extends State<PieWidgetBody> {
+  /// Index into the *visible* slice list (not the original items).
   int? _hoveredIndex;
   Offset? _cursor;
+
+  /// Original-item indices the user has toggled off via the legend. Hidden
+  /// slices drop out of the donut so the rest re-scale to fill it — handy when
+  /// one slice (e.g. a mortgage) dwarfs everything else.
+  final Set<int> _hidden = {};
+
+  void _toggleSlice(int original, int itemCount) {
+    setState(() {
+      if (_hidden.contains(original)) {
+        _hidden.remove(original);
+      } else if (itemCount - _hidden.length > 1) {
+        // Keep at least one slice visible — an empty donut is just confusing.
+        _hidden.add(original);
+      }
+      // The visible list changed, so any hovered index is stale.
+      _hoveredIndex = null;
+      _cursor = null;
+    });
+  }
 
   /// Compute which slice (if any) the cursor at [localPos] is over.
   /// Returns null when the cursor isn't on the donut ring.
@@ -76,11 +96,19 @@ class _PieWidgetBodyState extends State<PieWidgetBody> {
             style: TextStyle(fontSize: 12, color: bt.ink4)),
       );
     }
-    final total =
-        (widget.data.data['total'] as num?)?.toDouble() ??
-            items.fold<double>(0, (m, it) => m + it.value);
-    final values = items.map((it) => it.value).toList();
     final palette = _palette(bt, items.length);
+    // Map visible slices back to their original index so colors stay stable
+    // and the legend can re-enable hidden ones.
+    final visibleOriginal = <int>[
+      for (var i = 0; i < items.length; i++)
+        if (!_hidden.contains(i)) i,
+    ];
+    final values = <double>[for (final i in visibleOriginal) items[i].value];
+    final colors = <Color>[
+      for (final i in visibleOriginal) palette[i % palette.length]
+    ];
+    // Total re-scales to the visible slices so proportions read correctly.
+    final total = values.fold<double>(0, (m, v) => m + v);
     return LayoutBuilder(
       builder: (_, c) {
         final compact = c.maxWidth < 240;
@@ -112,7 +140,7 @@ class _PieWidgetBodyState extends State<PieWidgetBody> {
                         child: CustomPaint(
                           painter: _DonutPainter(
                             values: values,
-                            colors: palette,
+                            colors: colors,
                             trackColor: bt.glass2,
                             highlightedIndex: _hoveredIndex,
                           ),
@@ -146,27 +174,30 @@ class _PieWidgetBodyState extends State<PieWidgetBody> {
                           ),
                         ),
                       ),
-                      if (_hoveredIndex != null && _cursor != null)
-                        PositionedChartTooltip(
-                          cursor: _cursor!,
-                          containerSize: Size(chartSide, chartSide),
-                          estimatedWidth: 220,
-                          estimatedHeight: 40,
-                          child: ChartHoverTooltip(
-                            lines: [
-                              ChartTooltipLine(
-                                swatchColor: palette[
-                                    _hoveredIndex! % palette.length],
-                                label: items[_hoveredIndex!].label,
-                                value:
-                                    moneyDecimal(items[_hoveredIndex!].value),
-                                trailing: total == 0
-                                    ? null
-                                    : '${(items[_hoveredIndex!].value / total * 100).toStringAsFixed(1)}%',
-                              ),
-                            ],
-                          ),
-                        ),
+                      if (_hoveredIndex != null &&
+                          _cursor != null &&
+                          _hoveredIndex! < visibleOriginal.length)
+                        Builder(builder: (_) {
+                          final orig = visibleOriginal[_hoveredIndex!];
+                          return PositionedChartTooltip(
+                            cursor: _cursor!,
+                            containerSize: Size(chartSide, chartSide),
+                            estimatedWidth: 220,
+                            estimatedHeight: 40,
+                            child: ChartHoverTooltip(
+                              lines: [
+                                ChartTooltipLine(
+                                  swatchColor: colors[_hoveredIndex!],
+                                  label: items[orig].label,
+                                  value: moneyDecimal(items[orig].value),
+                                  trailing: total == 0
+                                      ? null
+                                      : '${(items[orig].value / total * 100).toStringAsFixed(1)}%',
+                                ),
+                              ],
+                            ),
+                          );
+                        }),
                     ],
                   ),
                 ),
@@ -178,36 +209,52 @@ class _PieWidgetBodyState extends State<PieWidgetBody> {
                 itemCount: items.length,
                 itemBuilder: (_, i) {
                   final it = items[i];
-                  final pct = total == 0 ? 0 : (it.value / total * 100);
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 2),
-                    child: Row(
-                      children: [
-                        Container(
-                          width: 8,
-                          height: 8,
-                          decoration: BoxDecoration(
-                            color: palette[i % palette.length],
-                            shape: BoxShape.circle,
+                  final hidden = _hidden.contains(i);
+                  final pct = (hidden || total == 0)
+                      ? null
+                      : (it.value / total * 100);
+                  return InkWell(
+                    onTap: () => _toggleSlice(i, items.length),
+                    borderRadius: BorderRadius.circular(6),
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.symmetric(vertical: 3, horizontal: 2),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: palette[i % palette.length]
+                                  .withValues(alpha: hidden ? 0.3 : 1),
+                              shape: BoxShape.circle,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 6),
-                        Expanded(
-                          child: Text(
-                            it.label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(fontSize: 11, color: bt.ink2),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              it.label,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: hidden ? bt.ink4 : bt.ink2,
+                                decoration: hidden
+                                    ? TextDecoration.lineThrough
+                                    : null,
+                                decorationColor: bt.ink4,
+                              ),
+                            ),
                           ),
-                        ),
-                        Text(
-                          '${pct.toStringAsFixed(0)}%',
-                          style: TextStyle(
-                              fontSize: 11, color: bt.ink4,
-                              fontFeatures:
-                                  const [FontFeature.tabularFigures()]),
-                        ),
-                      ],
+                          Text(
+                            pct == null ? '—' : '${pct.toStringAsFixed(0)}%',
+                            style: TextStyle(
+                                fontSize: 11, color: bt.ink4,
+                                fontFeatures:
+                                    const [FontFeature.tabularFigures()]),
+                          ),
+                        ],
+                      ),
                     ),
                   );
                 },

@@ -254,6 +254,45 @@ class _InsightsScreenState extends State<InsightsScreen> {
     _focusNode.requestFocus();
   }
 
+  /// Delete a saved chat (with confirmation). If it's the one currently open,
+  /// reset the transcript to a fresh chat so we don't keep appending to a
+  /// session that no longer exists.
+  Future<void> _deleteSession(ChatSession session) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete chat?'),
+        content: Text('"${session.title}" will be permanently removed.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _client.deleteSession(session.id);
+      if (!mounted) return;
+      if (_activeSessionId == session.id) {
+        setState(() {
+          _activeSessionId = null;
+          _messages.clear();
+          _sessionSpentUsd = 0.0;
+        });
+      }
+      await _loadSessions();
+    } catch (e) {
+      if (!mounted) return;
+      _showError('Could not delete chat: $e');
+    }
+  }
+
   Future<void> _openHistory() async {
     final picked = await Navigator.of(context).push<int>(
       MaterialPageRoute(
@@ -473,6 +512,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 sessions: _sessions,
                 activeId: _activeSessionId,
                 onSelect: _loadSession,
+                onDelete: _deleteSession,
                 onNewChat: _startNewChat,
               ),
               Expanded(child: chatColumn),
@@ -894,12 +934,14 @@ class _SessionsSidebar extends StatelessWidget {
     required this.sessions,
     required this.activeId,
     required this.onSelect,
+    required this.onDelete,
     required this.onNewChat,
   });
 
   final List<ChatSession> sessions;
   final int? activeId;
   final void Function(int) onSelect;
+  final void Function(ChatSession) onDelete;
   final VoidCallback onNewChat;
 
   @override
@@ -947,6 +989,7 @@ class _SessionsSidebar extends StatelessWidget {
                           session: s,
                           active: s.id == activeId,
                           onTap: () => onSelect(s.id),
+                          onDelete: () => onDelete(s),
                         ),
                       );
                     },
@@ -958,40 +1001,74 @@ class _SessionsSidebar extends StatelessWidget {
   }
 }
 
-class _SessionRow extends StatelessWidget {
+class _SessionRow extends StatefulWidget {
   const _SessionRow({
     required this.session,
     required this.active,
     required this.onTap,
+    required this.onDelete,
   });
 
   final ChatSession session;
   final bool active;
   final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  State<_SessionRow> createState() => _SessionRowState();
+}
+
+class _SessionRowState extends State<_SessionRow> {
+  bool _hovered = false;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
+    final session = widget.session;
+    final active = widget.active;
+    // Reserve room for the trash button so the title doesn't reflow on hover.
     final body = Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+      child: Row(
         children: [
-          Text(
-            session.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: active ? FontWeight.w600 : FontWeight.w500,
-              color: active ? bt.ink : bt.ink2,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  session.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: active ? FontWeight.w600 : FontWeight.w500,
+                    color: active ? bt.ink : bt.ink2,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _relativeDate(session.updatedAt),
+                  style: TextStyle(fontSize: 11, color: bt.ink3),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 2),
-          Text(
-            _relativeDate(session.updatedAt),
-            style: TextStyle(fontSize: 11, color: bt.ink3),
+          // Trash reveals on hover (always visible on the active row so it's
+          // discoverable without a mouse, e.g. touch).
+          SizedBox(
+            width: 28,
+            child: (_hovered || active)
+                ? IconButton(
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                        minWidth: 28, minHeight: 28),
+                    tooltip: 'Delete chat',
+                    icon: BudgetIcons.build('trash',
+                        size: 15, strokeWidth: 1.6, color: bt.ink4),
+                    onPressed: widget.onDelete,
+                  )
+                : null,
           ),
         ],
       ),
@@ -1007,14 +1084,18 @@ class _SessionRow extends StatelessWidget {
           )
         : body;
 
-    return Material(
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(10),
-      child: InkWell(
-        onTap: onTap,
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: Material(
+        color: Colors.transparent,
         borderRadius: BorderRadius.circular(10),
-        hoverColor: active ? null : bt.glass1,
-        child: shell,
+        child: InkWell(
+          onTap: widget.onTap,
+          borderRadius: BorderRadius.circular(10),
+          hoverColor: active ? null : bt.glass1,
+          child: shell,
+        ),
       ),
     );
   }

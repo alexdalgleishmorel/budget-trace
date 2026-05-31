@@ -673,8 +673,12 @@ METRIC_REGISTRY: dict[str, MetricDef] = {
     "top_merchants": MetricDef(
         id="top_merchants",
         label="Top merchants",
-        description="Highest-spend merchants in the dashboard's time range.",
-        widget_types=("table", "bar", "query_value"),
+        description="Highest-spend merchants in the dashboard's time range. "
+        "A per-merchant breakdown — render it as a pie/treemap (proportion), "
+        "bar (ranked), or table. Optionally filter to one category.",
+        # A merchant breakdown is a proportion, so pie/treemap belong here just
+        # as they do for spend_by_category — the resolver already shapes them.
+        widget_types=("pie", "bar", "treemap", "table", "query_value"),
         params_schema=[
             _category("category_path", "Category filter",
                       description="Optional — restrict to one category."),
