@@ -661,6 +661,9 @@ class _Tile extends StatelessWidget {
   Widget build(BuildContext context) {
     final bt = context.bt;
     final bg = context.categoryBg(node.color);
+    // Tiles are smaller on phones — drop the title a couple points so longer
+    // names fit without truncating.
+    final isMobile = MediaQuery.of(context).size.width < 600;
     return Material(
       color: Colors.transparent,
       borderRadius: BorderRadius.circular(20),
@@ -715,7 +718,7 @@ class _Tile extends StatelessWidget {
                     Text(
                       node.name,
                       style: TextStyle(
-                        fontSize: 18,
+                        fontSize: isMobile ? 15.5 : 18,
                         fontWeight: FontWeight.w600,
                         letterSpacing: -0.01,
                         color: bt.ink,
