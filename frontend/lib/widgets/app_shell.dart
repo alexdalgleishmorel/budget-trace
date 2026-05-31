@@ -322,6 +322,7 @@ class _AppShellState extends State<AppShell> {
           body: AppBackground(
             child: Column(
               children: [
+                const DemoBanner(),
                 Expanded(child: _buildScreen(_tab)),
                 BottomTabsBar(
                   current: _tab,
