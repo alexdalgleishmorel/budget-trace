@@ -1,0 +1,52 @@
+name: Deploy demo to GitHub Pages
+
+# Builds the Flutter web app in DEMO_MODE (in-memory mock backend) and publishes
+# it to GitHub Pages. Lives on — and is run from — the `demo` branch, which is
+# kept in sync with `main` by sync-demo.yml. Manual trigger only.
+#
+# One-time setup: Settings → Pages → Build and deployment → Source = GitHub Actions.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.35.0
+
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+
+      - name: Build web (demo)
+        run: flutter build web --release --dart-define=DEMO_MODE=true --base-href=/budget-trace/
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/build/web
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

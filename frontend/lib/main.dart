@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+import 'services/demo/demo_bootstrap.dart';
 import 'services/me_client.dart';
 import 'theme/app_theme.dart';
 import 'widgets/app_shell.dart';
 
 void main() {
+  // No-op unless this is a DEMO_MODE build; swaps in the in-memory backend.
+  installDemoBackend();
   runApp(const BudgetTraceApp());
 }
 

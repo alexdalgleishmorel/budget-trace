@@ -13,6 +13,40 @@ See [`docs/`](docs/README.md) for architecture and conventions, and
 [`docs/running-end-to-end.md`](docs/running-end-to-end.md) for a step-by-step
 walkthrough with a comment above every command.
 
+## Live demo
+
+**→ [alexdalgleishmorel.github.io/budget-trace](https://alexdalgleishmorel.github.io/budget-trace/)**
+
+A browser-only demo with **no backend**. The Flutter web app runs against an
+in-memory mock (a sample 12-month dataset) so you can click through Categories,
+Expenses, and Widgets — creating and editing as you go. Two caveats, surfaced in
+the app itself via a banner:
+
+- **Nothing persists** — reload the page and your changes reset.
+- **The Insights AI is mocked** — replies are pre-written examples, clearly
+  labelled, not a live model.
+
+For the real thing — persistence, statement import, and live AI — run it locally
+with Docker (below).
+
+### How it's built and shipped
+
+- A `--dart-define=DEMO_MODE=true` build swaps the app's HTTP layer for an
+  in-memory backend ([`frontend/lib/services/demo/`](frontend/lib/services/demo/)).
+  Normal builds are unaffected.
+- The demo lives on the long-lived **`demo`** branch, kept in sync with `main` by
+  [`.github/workflows/sync-demo.yml`](.github/workflows/sync-demo.yml).
+- [`.github/workflows/deploy-demo.yml`](.github/workflows/deploy-demo.yml) builds
+  and publishes to Pages — **manual trigger** (Actions → "Deploy demo to GitHub
+  Pages" → Run workflow). One-time setup: Settings → Pages → Source = GitHub
+  Actions.
+- Regenerate the sample dataset
+  ([`frontend/assets/demo/seed.json`](frontend/assets/demo/seed.json)) from the
+  deterministic backend seed if the schema or seed changes.
+
+Run the demo locally with `flutter run -d chrome --dart-define=DEMO_MODE=true`
+(from `frontend/`, no backend needed).
+
 ## Run it with Docker (recommended)
 
 One container builds the Flutter web app and serves it together with the API on
