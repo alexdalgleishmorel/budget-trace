@@ -49,27 +49,50 @@ CREATE INDEX IF NOT EXISTS idx_txn_merchant ON transactions(merchant);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_txn_source_hash
     ON transactions(source_hash) WHERE source_hash IS NOT NULL;
 
--- Per-user settings. Single-user dev today: id=1; auth lands later.
+-- Settings for the single local user (id=1). This is a local single-user
+-- app; there is no auth.
 -- `features` is a JSON blob ({"ai": true}) so we can add new flags without
 -- migrations. `theme` is one of 'system' | 'light' | 'dark'.
--- `selected_model` is a model id from services/ai/registry.py — null falls
--- back to SELECTED_MODEL env, then the registry's DEFAULT_MODEL.
+-- `selected_provider` is which generic provider the user picked (anthropic |
+-- openai | google) — defaults to 'anthropic'. `selected_model` is a model id
+-- fetched live from that provider (see discovered_models); null until the user
+-- fetches a catalog and picks one. There is no hardcoded default model.
 -- Per-provider API keys live in `ai_provider_keys` (one row per provider).
 CREATE TABLE IF NOT EXISTS users (
-    id              INTEGER PRIMARY KEY,
-    features        TEXT NOT NULL DEFAULT '{}',
-    theme           TEXT NOT NULL DEFAULT 'system',
-    selected_model  TEXT
+    id                INTEGER PRIMARY KEY,
+    features          TEXT NOT NULL DEFAULT '{}',
+    theme             TEXT NOT NULL DEFAULT 'system',
+    selected_provider TEXT NOT NULL DEFAULT 'anthropic',
+    selected_model    TEXT
 );
 
--- One row per (user, provider). API key is plaintext (acceptable for local
--- dev, documented in docs/account.md). When auth lands, we'll wrap this in
--- a per-user encryption envelope.
+-- One row per (user, provider). API key is plaintext — this is a local
+-- single-user app, so the key lives only in the user's own database file
+-- (documented in docs/account.md).
 CREATE TABLE IF NOT EXISTS ai_provider_keys (
     user_id   INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     provider  TEXT    NOT NULL,
     api_key   TEXT    NOT NULL,
     PRIMARY KEY (user_id, provider)
+);
+
+-- The model catalog. There is no hardcoded model list — these rows are pulled
+-- live from each provider's "list models" API (the Account screen's "Fetch
+-- models" button) and are the only source of selectable models. `provider` is
+-- recorded at fetch time (the list call knows it). Pricing comes from LiteLLM's
+-- bundled cost table when known; `pricing_available = 0` means we couldn't
+-- price it (spend then records the call at zero cost). A provider's rows are
+-- replaced wholesale on each fetch — see services/ai/discovery.py.
+CREATE TABLE IF NOT EXISTS discovered_models (
+    id                    TEXT PRIMARY KEY,
+    provider              TEXT    NOT NULL,
+    display_name          TEXT    NOT NULL,
+    input_per_mtok        REAL,
+    output_per_mtok       REAL,
+    cache_write_per_mtok  REAL,
+    cache_read_per_mtok   REAL,
+    pricing_available     INTEGER NOT NULL DEFAULT 0,
+    discovered_at         TEXT    NOT NULL
 );
 
 -- One row per AI API call. Powers the global "$X.XX spent" chip and
@@ -185,7 +208,9 @@ CREATE INDEX IF NOT EXISTS idx_ai_widget_audit_created_at
 
 
 def db_path() -> Path:
-    """Resolve the active DB path. Override via env if you need to."""
+    """Resolve the active DB path. Override via the `BUDGET_TRACE_DB` env var
+    — the Docker image points it at the mounted `/data` volume so the SQLite
+    file persists across container restarts."""
     import os
     env = os.environ.get("BUDGET_TRACE_DB")
     return Path(env) if env else DEFAULT_DB_PATH
@@ -214,6 +239,11 @@ def init_schema(conn: sqlite3.Connection) -> None:
     conn.executescript(SCHEMA)
     # Forward-compat for any DB created before `selected_model` existed.
     _add_column_if_missing(conn, "users", "selected_model", "TEXT")
+    # Provider-first model selection: which generic provider the user picked.
+    _add_column_if_missing(
+        conn, "users", "selected_provider",
+        "TEXT NOT NULL DEFAULT 'anthropic'",
+    )
     # Last-viewed dashboard so the Widgets tab lands on the same dashboard
     # across sessions. Nullable; no FK enforced (would require post-create
     # column add).

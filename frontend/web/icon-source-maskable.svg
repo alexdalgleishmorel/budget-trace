@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Maskable variant: full-bleed gradient square (no transparent corners) so
+       Android/PWA masks (circle/squircle) crop cleanly. The glyph sits within
+       the inner safe zone. -->
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#075985"/>
+      <stop offset="0.55" stop-color="#155E75"/>
+      <stop offset="1" stop-color="#115E59"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" fill="url(#accent)"/>
+  <g transform="translate(134,134) scale(10.166)" fill="none" stroke="#ffffff"
+     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 3v18h18M7 16l4-5 3 3 5-7"/>
+  </g>
+</svg>

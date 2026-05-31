@@ -56,6 +56,8 @@ class ModelOption {
     required this.displayName,
     required this.inputPerMtok,
     required this.outputPerMtok,
+    this.discovered = false,
+    this.pricingAvailable = true,
   });
 
   final String id;
@@ -64,12 +66,67 @@ class ModelOption {
   final double inputPerMtok;
   final double outputPerMtok;
 
+  /// True when pulled live via "Refresh models" rather than the curated
+  /// baseline. [pricingAvailable] is false for discovered models whose rates
+  /// aren't in the cost table (spend then under-counts) — surfaced as a badge.
+  final bool discovered;
+  final bool pricingAvailable;
+
   factory ModelOption.fromJson(Map<String, dynamic> j) => ModelOption(
         id: j['id'] as String,
         provider: j['provider'] as String? ?? '',
         displayName: j['display_name'] as String,
         inputPerMtok: (j['input_per_mtok'] as num).toDouble(),
         outputPerMtok: (j['output_per_mtok'] as num).toDouble(),
+        discovered: j['discovered'] as bool? ?? false,
+        pricingAvailable: j['pricing_available'] as bool? ?? true,
+      );
+}
+
+/// Per-provider outcome of a `POST /me/models/refresh`.
+class ProviderRefreshResult {
+  const ProviderRefreshResult({
+    required this.provider,
+    required this.ok,
+    required this.discoveredCount,
+    required this.skipped,
+    this.error,
+  });
+
+  final String provider;
+  final bool ok;
+  final int discoveredCount;
+  final bool skipped;       // true when the provider has no key configured
+  final String? error;
+
+  factory ProviderRefreshResult.fromJson(Map<String, dynamic> j) =>
+      ProviderRefreshResult(
+        provider: j['provider'] as String,
+        ok: j['ok'] as bool? ?? false,
+        discoveredCount: j['discovered_count'] as int? ?? 0,
+        skipped: j['skipped'] as bool? ?? false,
+        error: j['error'] as String?,
+      );
+}
+
+/// Result of `POST /me/models/refresh`: the selected provider's fetch outcome
+/// plus its (now refreshed) model list.
+class ModelsRefreshResult {
+  const ModelsRefreshResult({
+    required this.provider,
+    required this.availableModels,
+  });
+
+  final ProviderRefreshResult provider;
+  final List<ModelOption> availableModels;
+
+  factory ModelsRefreshResult.fromJson(Map<String, dynamic> j) =>
+      ModelsRefreshResult(
+        provider: ProviderRefreshResult.fromJson(
+            j['provider'] as Map<String, dynamic>),
+        availableModels: (j['available_models'] as List? ?? const [])
+            .map((e) => ModelOption.fromJson(e as Map<String, dynamic>))
+            .toList(growable: false),
       );
 }
 
@@ -81,9 +138,9 @@ class Me {
     required this.features,
     required this.theme,
     required this.providers,
+    required this.selectedProvider,
+    required this.selectedProviderKeyAvailable,
     required this.selectedModel,
-    required this.selectedModelProvider,
-    required this.selectedModelKeyAvailable,
     required this.availableModels,
     required this.aiSpentUsd,
     this.lastDashboardId,
@@ -97,18 +154,21 @@ class Me {
   /// without a frontend change.
   final List<ProviderStatus> providers;
 
-  /// The model that drives every AI call (chat, parser, auto-categorizer).
+  /// The generic provider the user picked (anthropic | openai | google). Its
+  /// key is used for every AI call, and [availableModels] holds its fetched
+  /// catalog.
+  final String selectedProvider;
+
+  /// Whether [selectedProvider] has a key available (stored or env). When
+  /// false, AI calls fail with `ai_key_missing` — the UI warns and models
+  /// can't be fetched.
+  final bool selectedProviderKeyAvailable;
+
+  /// The fetched model that drives every AI call. Empty string until the user
+  /// fetches the provider's catalog and picks one.
   final String selectedModel;
 
-  /// Provider id of [selectedModel]. Derived server-side from the model
-  /// registry.
-  final String selectedModelProvider;
-
-  /// Whether [selectedModelProvider] has a key available (stored or env).
-  /// When false, AI calls will fail with `ai_key_missing` — the UI uses
-  /// this to surface a warning under the model picker.
-  final bool selectedModelKeyAvailable;
-
+  /// The selected provider's fetched models (the model dropdown's contents).
   final List<ModelOption> availableModels;
 
   /// Locally-estimated cumulative AI spend in USD. Computed from token
@@ -125,9 +185,9 @@ class Me {
     features: FeatureFlags.off,
     theme: 'system',
     providers: [],
-    selectedModel: 'claude-sonnet-4-6',
-    selectedModelProvider: 'anthropic',
-    selectedModelKeyAvailable: false,
+    selectedProvider: 'anthropic',
+    selectedProviderKeyAvailable: false,
+    selectedModel: '',
     availableModels: [],
     aiSpentUsd: 0.0,
     lastDashboardId: null,
@@ -139,11 +199,10 @@ class Me {
         providers: (j['providers'] as List? ?? const [])
             .map((e) => ProviderStatus.fromJson(e as Map<String, dynamic>))
             .toList(growable: false),
-        selectedModel: j['selected_model'] as String? ?? 'claude-sonnet-4-6',
-        selectedModelProvider:
-            j['selected_model_provider'] as String? ?? 'anthropic',
-        selectedModelKeyAvailable:
-            j['selected_model_key_available'] as bool? ?? false,
+        selectedProvider: j['selected_provider'] as String? ?? 'anthropic',
+        selectedProviderKeyAvailable:
+            j['selected_provider_key_available'] as bool? ?? false,
+        selectedModel: j['selected_model'] as String? ?? '',
         availableModels: (j['available_models'] as List? ?? const [])
             .map((e) => ModelOption.fromJson(e as Map<String, dynamic>))
             .toList(growable: false),
@@ -155,9 +214,9 @@ class Me {
         features: features,
         theme: theme,
         providers: providers,
+        selectedProvider: selectedProvider,
+        selectedProviderKeyAvailable: selectedProviderKeyAvailable,
         selectedModel: selectedModel,
-        selectedModelProvider: selectedModelProvider,
-        selectedModelKeyAvailable: selectedModelKeyAvailable,
         availableModels: availableModels,
         aiSpentUsd: aiSpentUsd,
         lastDashboardId: lastDashboardId ?? this.lastDashboardId,
@@ -176,15 +235,17 @@ class MeClient {
 
   /// Partial update. Each parameter is independently optional.
   ///
-  /// Pass `selectedModelExplicit: true` to send [selectedModel] — `null`
-  /// then clears the override (the backend falls back to env / default).
-  /// Empty strings are rejected by the backend; pass `null` instead.
+  /// [selectedProvider] switches the active provider (the backend clears the
+  /// selected model when it changes). Pass `selectedModelExplicit: true` to
+  /// send [selectedModel] — `null` then clears it. Empty strings are rejected
+  /// by the backend; pass `null` instead.
   ///
   /// [providerKeys] is a partial map. Only the providers you include get
   /// changed: `'<provider>': '<key>'` sets, `'<provider>': null` clears.
   Future<Me> update({
     FeatureFlags? features,
     String? theme,
+    String? selectedProvider,
     String? selectedModel,
     bool selectedModelExplicit = false,
     Map<String, String?>? providerKeys,
@@ -192,6 +253,7 @@ class MeClient {
     final body = <String, dynamic>{};
     if (features != null) body['features'] = features.toJson();
     if (theme != null) body['theme'] = theme;
+    if (selectedProvider != null) body['selected_provider'] = selectedProvider;
     if (selectedModelExplicit) body['selected_model'] = selectedModel;
     if (providerKeys != null && providerKeys.isNotEmpty) {
       body['provider_keys'] = providerKeys;
@@ -202,6 +264,16 @@ class MeClient {
       body: jsonEncode(body),
     );
     return Me.fromJson(decodeOrThrow(resp) as Map<String, dynamic>);
+  }
+
+  /// Pull the latest models from every configured provider. The backend lists
+  /// each provider's live catalog (using the stored/env key), prices what it
+  /// can, and persists newly-found models. Per-provider failures are reported
+  /// in the result rather than thrown.
+  Future<ModelsRefreshResult> refreshModels() async {
+    final resp = await _client.post(Uri.parse('$apiBaseUrl/me/models/refresh'));
+    return ModelsRefreshResult.fromJson(
+        decodeOrThrow(resp) as Map<String, dynamic>);
   }
 
   void dispose() => _client.close();

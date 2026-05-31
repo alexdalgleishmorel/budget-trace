@@ -30,7 +30,7 @@ from ..models import (
     WidgetSpec,
 )
 from ..services import ai_widget_audit, chat_sessions as svc
-from ..services.ai.client import AiKeyMissing
+from ..services.ai.client import AiKeyMissing, NoModelSelected
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -87,7 +87,7 @@ def append_message(session_id: int, body: AppendMessageRequest) -> AppendMessage
         cost_usd = reply.cost_usd
         session_spent_usd = reply.session_spent_usd
         errored = False
-    except AiKeyMissing as e:
+    except (AiKeyMissing, NoModelSelected) as e:
         raise HTTPException(
             status_code=400,
             detail={"code": e.code, "message": str(e)},

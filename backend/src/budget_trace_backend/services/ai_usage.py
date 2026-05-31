@@ -1,13 +1,14 @@
 """AI spend tracking — per-call recording + per-call cost estimation.
 
 Every AI call (chat orchestrator, AI parser, auto-categorizer) ends in a
-`record_usage(...)` here. We snapshot the per-call cost using the price
-table in `services/ai/registry.py` at insert time so changing rates later
-doesn't retroactively rewrite history.
+`record_usage(...)` here. We snapshot the per-call cost at insert time using
+the pricing carried on the selected (fetched) model — resolved via
+`services/ai/discovery.py` from LiteLLM's bundled cost table — so changing
+rates later doesn't retroactively rewrite history.
 
-The Settings dropdown is built from `available_models()`, and `PATCH /me`
-rejects model ids not in the registry so the spend chip always has a price
-to compute against.
+There is no hardcoded model catalog: models come from the provider the user
+picked in Account. A model with no known pricing records a zero-cost row (the
+spend chip then under-counts; surfaced in the UI as "pricing n/a").
 """
 
 from __future__ import annotations
@@ -16,8 +17,7 @@ from datetime import datetime
 from typing import Any
 
 from ..db import connect, init_schema
-from .ai.registry import MODEL_REGISTRY, available_models as _registry_available_models
-from .ai.registry import cheapest_model, is_known_model as _is_known_model
+from .ai import discovery
 
 
 def _now_iso() -> str:
@@ -30,19 +30,22 @@ def _ensure_schema() -> None:
 
 
 def is_known_model(model: str) -> bool:
-    return _is_known_model(model)
+    return discovery.is_known_model(model)
 
 
-def available_models() -> list[dict]:
-    """For the Settings dropdown. Frontend consumes this verbatim."""
-    return _registry_available_models()
+def available_models(provider_id: str | None = None) -> list[dict]:
+    """Fetched models for the Settings dropdown. Frontend consumes this
+    verbatim; pass a provider id to scope it to that provider."""
+    return discovery.available_models(provider_id)
 
 
 def compute_cost_usd(model: str, usage: dict) -> float:
-    """Compute the dollar cost of one call from token counts. Falls back to
-    the cheapest registered model's rates for unknown ids so we still
-    record a (best-effort) row."""
-    info = MODEL_REGISTRY.get(model) or cheapest_model()
+    """Compute the dollar cost of one call from token counts. Returns 0.0 when
+    the model's pricing is unknown (unfetched or absent from the cost table)
+    so we still record a best-effort row."""
+    info = discovery.model_pricing(model)
+    if info is None:
+        return 0.0
     input_t = int(usage.get("input_tokens") or 0)
     output_t = int(usage.get("output_tokens") or 0)
     cache_w = int(usage.get("cache_creation_input_tokens") or 0)

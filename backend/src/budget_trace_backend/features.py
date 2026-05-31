@@ -56,8 +56,9 @@ def _env_overrides() -> set[str]:
 def ensure_default_user(conn) -> None:
     """Idempotent — call from seed and at FastAPI startup."""
     conn.execute(
-        "INSERT OR IGNORE INTO users (id, features, theme, selected_model) "
-        "VALUES (?, '{}', 'system', NULL)",
+        "INSERT OR IGNORE INTO users "
+        "(id, features, theme, selected_provider, selected_model) "
+        "VALUES (?, '{}', 'system', 'anthropic', NULL)",
         (DEFAULT_USER_ID,),
     )
 
@@ -102,8 +103,8 @@ def get_me(user_id: int = DEFAULT_USER_ID) -> dict:
     with connect() as conn:
         ensure_default_user(conn)
         row = conn.execute(
-            "SELECT features, theme, selected_model, last_dashboard_id "
-            "FROM users WHERE id = ?",
+            "SELECT features, theme, selected_provider, selected_model, "
+            "last_dashboard_id FROM users WHERE id = ?",
             (user_id,),
         ).fetchone()
         key_rows = conn.execute(
@@ -113,6 +114,7 @@ def get_me(user_id: int = DEFAULT_USER_ID) -> dict:
     return {
         "features": get_flags(user_id),
         "theme": row["theme"],
+        "selected_provider": row["selected_provider"] or "anthropic",
         "selected_model": row["selected_model"],
         "last_dashboard_id": row["last_dashboard_id"],
         "provider_keys": {r["provider"]: r["api_key"] for r in key_rows},
@@ -136,6 +138,7 @@ def update_me(
     *,
     features: Any = UNSET,
     theme: Any = UNSET,
+    selected_provider: Any = UNSET,
     selected_model: Any = UNSET,
     provider_keys: Any = UNSET,
 ) -> dict:
@@ -143,18 +146,25 @@ def update_me(
 
     - `features`: partial dict like `{"ai": True}`, merged into the JSON blob.
     - `theme`: 'system' | 'light' | 'dark'.
-    - `selected_model`: model id from MODEL_REGISTRY, or None to clear.
+    - `selected_provider`: 'anthropic' | 'openai' | 'google'. Changing it to a
+       different provider clears `selected_model` (the old model belonged to
+       the previous provider).
+    - `selected_model`: a fetched model id (in discovered_models), or None to
+       clear. Unknown ids raise ValueError.
     - `provider_keys`: partial dict `{provider_id: api_key | None}`. None
        clears that provider's row; a string upserts it. Unknown provider
        ids raise ValueError. Empty strings are rejected at the route layer.
     """
-    # Local imports to avoid circular deps.
-    from .services.ai.registry import is_known_model, is_known_provider
+    # Local imports to avoid circular deps. `is_known_model` resolves against
+    # the fetched catalog (discovered_models).
+    from .services.ai.discovery import is_known_model
+    from .services.ai.registry import is_known_provider
 
     with connect() as conn:
         ensure_default_user(conn)
         row = conn.execute(
-            "SELECT features FROM users WHERE id = ?", (user_id,)
+            "SELECT features, selected_provider FROM users WHERE id = ?",
+            (user_id,),
         ).fetchone()
         stored = json.loads(row["features"]) if row else {}
 
@@ -176,6 +186,21 @@ def update_me(
             conn.execute(
                 "UPDATE users SET theme = ? WHERE id = ?", (theme, user_id),
             )
+
+        if selected_provider is not UNSET:
+            if not is_known_provider(selected_provider):
+                raise ValueError(f"unknown provider: {selected_provider!r}")
+            conn.execute(
+                "UPDATE users SET selected_provider = ? WHERE id = ?",
+                (selected_provider, user_id),
+            )
+            # Switching providers invalidates the model — it belonged to the
+            # old one. Clear it unless this same request also sets a model.
+            if selected_model is UNSET and row["selected_provider"] != selected_provider:
+                conn.execute(
+                    "UPDATE users SET selected_model = NULL WHERE id = ?",
+                    (user_id,),
+                )
 
         if selected_model is not UNSET:
             if selected_model is not None and not is_known_model(selected_model):

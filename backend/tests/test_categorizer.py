@@ -27,6 +27,17 @@ def seeded_db(tmp_path: Path, monkeypatch) -> Path:
     for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
         monkeypatch.delenv(var, raising=False)
     seed.main(target)
+    # A model is only selectable once fetched — these tests fake the chat call,
+    # which still needs a real model id to record usage against.
+    from budget_trace_backend import features
+    from budget_trace_backend.services.ai import discovery
+    discovery._replace_provider_models("anthropic", [
+        discovery.DiscoveredModel(
+            id="claude-test", provider="anthropic", display_name="claude-test",
+            input_per_mtok=3.0, output_per_mtok=15.0,
+            cache_write_per_mtok=None, cache_read_per_mtok=None, pricing_available=True),
+    ])
+    features.update_me(selected_model="claude-test")
     yield target
     os.environ.pop("BUDGET_TRACE_DB", None)
 

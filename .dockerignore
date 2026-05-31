@@ -1,0 +1,20 @@
+# Keep the build context lean and reproducible.
+**/.git
+**/.venv
+**/__pycache__
+**/*.pyc
+**/.pytest_cache
+**/*.egg-info
+
+# Python: never ship a local DB into the image (the volume owns it).
+backend/data/*.db
+
+# Flutter build artifacts + local tool state (rebuilt inside the image).
+frontend/build/
+frontend/.dart_tool/
+frontend/.flutter-plugins-dependencies
+
+# Editor / OS noise
+**/.DS_Store
+**/.idea
+**/.vscode

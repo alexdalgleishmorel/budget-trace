@@ -55,7 +55,8 @@ backend/
     models.py                          # pydantic ChartSpec / ChatRequest / ChatResponse
     services/
       ai/
-        registry.py                    # PROVIDERS + MODEL_REGISTRY + pricing
+        registry.py                    # PROVIDERS (generic providers; no model list)
+        discovery.py                   # live per-provider model fetch + pricing + store
         client.py                      # chat() — key resolution + LiteLLM dispatch
       ai_usage.py                      # per-call cost snapshot + cumulative spend reads
       categories.py                    # category mutation services (used by routes + MCP)

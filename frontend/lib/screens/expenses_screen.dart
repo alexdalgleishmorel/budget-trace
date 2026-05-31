@@ -26,6 +26,7 @@ class ExpensesScreen extends StatefulWidget {
     required this.transactions,
     required this.client,
     required this.aiEnabled,
+    required this.aiReady,
     required this.aiSpentUsd,
     required this.onChanged,
     required this.cycleLabels,
@@ -38,6 +39,10 @@ class ExpensesScreen extends StatefulWidget {
   final List<Transaction> transactions;
   final TransactionsClient client;
   final bool aiEnabled;
+
+  /// AI parsing is actually usable (AI on + provider key set + a model picked).
+  /// Drives the dropzone: when false it accepts CSV only and nudges setup.
+  final bool aiReady;
 
   /// Estimated cumulative AI spend so far. Surfaced as a metric inside
   /// the upload [Dropzone] when AI parsing is on, so the user sees running
@@ -145,6 +150,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
             client: widget.client,
             onImported: widget.onChanged,
             aiEnabled: widget.aiEnabled,
+            aiReady: widget.aiReady,
             aiSpentUsd: widget.aiSpentUsd,
             onOpenCategories: widget.onOpenCategories,
             onOpenAccount: widget.onOpenAccount,
@@ -166,6 +172,7 @@ class _ExpensesScreenState extends State<ExpensesScreen> {
           client: widget.client,
           onImported: widget.onChanged,
           aiEnabled: widget.aiEnabled,
+          aiReady: widget.aiReady,
           aiSpentUsd: widget.aiSpentUsd,
           onOpenCategories: widget.onOpenCategories,
           onOpenAccount: widget.onOpenAccount,
@@ -194,6 +201,7 @@ class _MobileExpenses extends StatelessWidget {
     required this.client,
     required this.onImported,
     required this.aiEnabled,
+    required this.aiReady,
     required this.aiSpentUsd,
     required this.onOpenCategories,
     required this.onOpenAccount,
@@ -216,6 +224,7 @@ class _MobileExpenses extends StatelessWidget {
   final VoidCallback onOpenCategories;
   final VoidCallback onOpenAccount;
   final bool aiEnabled;
+  final bool aiReady;
   final double aiSpentUsd;
 
   @override
@@ -273,7 +282,11 @@ class _MobileExpenses extends StatelessWidget {
                     compact: true,
                     client: client,
                     onImported: onImported,
+                    hasCategories:
+                        cycle.root.children.any((c) => !c.isUnknown),
+                    onOpenCategories: onOpenCategories,
                     aiEnabled: aiEnabled,
+                    aiReady: aiReady,
                     aiSpentUsd: aiSpentUsd,
                     onOpenAccount: onOpenAccount,
                   ),
@@ -371,6 +384,7 @@ class _DesktopExpenses extends StatefulWidget {
     required this.client,
     required this.onImported,
     required this.aiEnabled,
+    required this.aiReady,
     required this.aiSpentUsd,
     required this.onOpenCategories,
     required this.onOpenAccount,
@@ -385,6 +399,7 @@ class _DesktopExpenses extends StatefulWidget {
   final TransactionsClient client;
   final Future<void> Function() onImported;
   final bool aiEnabled;
+  final bool aiReady;
   final double aiSpentUsd;
   final VoidCallback onOpenCategories;
   final VoidCallback onOpenAccount;
@@ -493,7 +508,11 @@ class _DesktopExpensesState extends State<_DesktopExpenses> {
                     Dropzone(
                       client: widget.client,
                       onImported: widget.onImported,
+                      hasCategories: widget.cycle.root.children
+                          .any((c) => !c.isUnknown),
+                      onOpenCategories: widget.onOpenCategories,
                       aiEnabled: widget.aiEnabled,
+                      aiReady: widget.aiReady,
                       aiSpentUsd: widget.aiSpentUsd,
                       onOpenAccount: widget.onOpenAccount,
                     ),

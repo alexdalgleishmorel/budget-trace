@@ -1,9 +1,7 @@
 """REST routes for dashboards and widgets.
 
-Gated behind the `widgets` feature flag (defaults on). Single-user dev today
-— `DEFAULT_USER_ID` is hardcoded; when auth lands the routes will read
-`user_id` from the request session and the service-layer signatures stay
-the same.
+Gated behind the `widgets` feature flag (defaults on). This is a local
+single-user app — `DEFAULT_USER_ID` is hardcoded and there is no auth.
 
 The save-chat-to-dashboard route lives here too because the saved payload
 is always a widget on a dashboard — there is no separate "saved insight"

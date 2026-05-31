@@ -2,6 +2,8 @@
 
 The Expenses tab has a dropzone that uploads to `POST /transactions/import`. Two parsers, one endpoint.
 
+**Multiple files at once:** the picker allows multi-select. The endpoint stays single-file — the frontend ([`widgets/dropzone.dart`](../frontend/lib/widgets/dropzone.dart) → [`widgets/import_progress_modal.dart`](../frontend/lib/widgets/import_progress_modal.dart)) fans the selection out into one `POST /transactions/import` per file, run sequentially, showing per-file progress ("Importing file 2 of 3"). Results are aggregated into one summary (Added / Duplicates / Failed / Categorized summed across files) with an expandable per-file breakdown; a single file failing doesn't abort the rest. Content-based dedupe in `insert_rows` already de-dupes across files, so the same transaction in two files lands once.
+
 ## CSV (free, default)
 
 Always available. Stdlib `csv.Sniffer` for delimiter detection plus heuristic header matching:
@@ -27,8 +29,10 @@ When the user has the `ai` flag enabled (Account → Features), the dropzone sho
 Server-side: `POST /transactions/import?parser=ai` checks `users.features.ai` and returns `403 feature_disabled` when off. When on, it routes to `importers/ai_parser.py`, which:
 
 1. For `text/*` payloads (CSV mistakenly sent as AI): pass the text directly.
-2. For PDFs: try `pdfplumber` text extraction first. If that fails, fall back to base64 document input.
-3. For images: base64 vision input.
+2. For PDFs: a base64 LiteLLM `file` content block (`{type: "file", file: {file_data: "data:application/pdf;base64,…"}}`), which LiteLLM maps to Anthropic's `document` source / Gemini inline_data. **Not** an `image_url` block — current LiteLLM turns a PDF `image_url` into an *image* source and Anthropic 400s on the `application/pdf` media type. See `_build_user_content` in [`importers/ai_parser.py`](../backend/src/budget_trace_backend/importers/ai_parser.py).
+3. For images: base64 `image_url` vision input.
+
+> LiteLLM's content-block → provider-shape mapping has changed across releases, so backend deps are pinned (`==`) in [`backend/pyproject.toml`](../backend/pyproject.toml). Bump deliberately and re-test upload against each provider.
 
 The orchestrator then sends the content to the selected AI model with one tool, `parse_transactions`, whose schema *is* the `ImportedRow` shape (date, merchant, amount). The model calls it once with the full row list; the orchestrator hands those rows off to the same `insert_rows` path the CSV parser uses.
 

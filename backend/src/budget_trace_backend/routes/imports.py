@@ -12,7 +12,7 @@ from ..db import connect
 from ..importers.categorizer import categorize_rows
 from ..importers.common import insert_rows
 from ..importers.csv_parser import CsvParseError, parse_csv
-from ..services.ai.client import AiKeyMissing, UnsupportedContent
+from ..services.ai.client import AiKeyMissing, NoModelSelected, UnsupportedContent
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -57,7 +57,7 @@ async def upload_transactions(
             rows, errors, ai_usage = parse_with_ai(
                 content, mime=file.content_type, filename=file.filename,
             )
-        except AiKeyMissing as e:
+        except (AiKeyMissing, NoModelSelected) as e:
             raise HTTPException(
                 status_code=400,
                 detail={"code": e.code, "message": str(e)},

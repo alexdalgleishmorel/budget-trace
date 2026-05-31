@@ -24,7 +24,10 @@ class Dropzone extends StatefulWidget {
     super.key,
     required this.client,
     required this.onImported,
+    required this.hasCategories,
+    required this.onOpenCategories,
     required this.aiEnabled,
+    required this.aiReady,
     required this.aiSpentUsd,
     this.onOpenAccount,
     this.compact = false,
@@ -33,7 +36,23 @@ class Dropzone extends StatefulWidget {
   final bool compact;
   final TransactionsClient client;
   final Future<void> Function() onImported;
+
+  /// Whether the user has set up any (non-Unknown) categories. When false,
+  /// uploading is blocked and the dropzone shows a "set up categories" prompt
+  /// — imports need somewhere to land.
+  final bool hasCategories;
+
+  /// Switches to the Categories tab — the CTA when [hasCategories] is false.
+  final VoidCallback onOpenCategories;
+
+  /// The AI feature flag is on.
   final bool aiEnabled;
+
+  /// AI parsing is actually usable: AI on + provider key set + a model picked.
+  /// When false, the dropzone accepts CSV only and nudges the user to finish
+  /// setup. (CSV never needs AI, so it always works.)
+  final bool aiReady;
+
   final double aiSpentUsd;
 
   /// Pushes the Account screen — used by the [AiPromo] CTA when AI is off.
@@ -53,38 +72,52 @@ class _DropzoneState extends State<Dropzone> {
   bool _hovered = false;
 
   Future<void> _pickAndUpload() async {
-    final extensions = widget.aiEnabled ? _kAiExtensions : _kCsvOnlyExtensions;
+    // Only offer (and route through) AI parsing when it's actually usable.
+    final extensions = widget.aiReady ? _kAiExtensions : _kCsvOnlyExtensions;
     final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: extensions,
+      allowMultiple: true,
       withData: true,
     );
     if (picked == null || picked.files.isEmpty) return;
-    final file = picked.files.first;
-    final bytes = file.bytes;
-    if (bytes == null) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not read file bytes.')),
-      );
-      return;
+
+    // When AI is ready, every upload goes through the AI parser. Otherwise
+    // only CSV is allowed (the picker enforces it) and the free CSV path runs.
+    final parser = widget.aiReady ? 'ai' : 'csv';
+
+    // Build one job per readable file. Files we couldn't read bytes for are
+    // dropped with a note rather than silently skipped.
+    final jobs = <ImportJob>[];
+    final unreadable = <String>[];
+    for (final file in picked.files) {
+      final bytes = file.bytes;
+      if (bytes == null) {
+        unreadable.add(file.name);
+        continue;
+      }
+      jobs.add(ImportJob(
+        filename: file.name,
+        upload: () => widget.client.import(
+          bytes: bytes,
+          filename: file.name,
+          parser: parser,
+        ),
+      ));
     }
 
-    // When AI is on, every upload goes through the AI parser — no extension
-    // routing. When AI is off, only CSV is allowed (the picker enforces it)
-    // and the free CSV path runs.
-    final parser = widget.aiEnabled ? 'ai' : 'csv';
-
     if (!mounted) return;
+    if (unreadable.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not read: ${unreadable.join(', ')}')),
+      );
+    }
+    if (jobs.isEmpty) return;
+
     await ImportProgressModal.show(
       context: context,
-      filename: file.name,
+      jobs: jobs,
       aiEnabled: widget.aiEnabled,
-      upload: () => widget.client.import(
-        bytes: bytes,
-        filename: file.name,
-        parser: parser,
-      ),
     );
     await widget.onImported();
   }
@@ -92,6 +125,12 @@ class _DropzoneState extends State<Dropzone> {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
+    // Hard gate: no categories → no upload. Imports need somewhere to land,
+    // and a fresh user importing into an empty tree just buries everything
+    // under "Unknown". Point them at Categories first.
+    if (!widget.hasCategories) {
+      return _CategoriesNeeded(onOpenCategories: widget.onOpenCategories);
+    }
     return Column(
       // `stretch` so the dropzone (and any AiPromo above it) claim the full
       // width of their parent. With `start` the GlassSurface's inner Column
@@ -99,7 +138,7 @@ class _DropzoneState extends State<Dropzone> {
       // dropzone visibly narrower than the surrounding cards.
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        if (widget.aiEnabled) ...[
+        if (widget.aiReady) ...[
           if (widget.aiSpentUsd > 0)
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
@@ -112,6 +151,13 @@ class _DropzoneState extends State<Dropzone> {
                 ],
               ),
             ),
+        ] else if (widget.aiEnabled) ...[
+          // AI is on but not finished setting up (no key and/or no model).
+          // CSV still works below; nudge them to finish for PDF/image support.
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: AiPromo.uploadSetup(onOpenAccount: widget.onOpenAccount),
+          ),
         ] else ...[
           Padding(
             padding: const EdgeInsets.only(bottom: 10),
@@ -154,9 +200,9 @@ class _DropzoneState extends State<Dropzone> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      widget.aiEnabled
-                          ? 'CSV, PDF, or image — parsed by AI'
-                          : 'CSV — date, merchant, amount columns',
+                      widget.aiReady
+                          ? 'CSV, PDF, or image — parsed by AI · pick one or more'
+                          : 'CSV — date, merchant, amount · pick one or more',
                       style: TextStyle(fontSize: 12, color: bt.ink3),
                       textAlign: TextAlign.center,
                     ),
@@ -167,6 +213,59 @@ class _DropzoneState extends State<Dropzone> {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Blocked-upload state shown when the user has no categories yet. Mirrors the
+/// dropzone's framed look but is inert — the CTA sends them to Categories.
+class _CategoriesNeeded extends StatelessWidget {
+  const _CategoriesNeeded({required this.onOpenCategories});
+
+  final VoidCallback onOpenCategories;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    return GlassSurface(
+      tier: GlassTier.t1,
+      radius: 18,
+      dashedBorder: true,
+      borderOverride: bt.glassBorderStrong,
+      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            GradientIconTile(
+              size: 48,
+              radius: 14,
+              child: BudgetIcons.build('folder',
+                  size: 20, strokeWidth: 1.8, color: Colors.white),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Set up categories first',
+              style: TextStyle(
+                  fontSize: 14, fontWeight: FontWeight.w600, color: bt.ink),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Create at least one category before importing, so your '
+              'transactions have somewhere to land.',
+              style: TextStyle(fontSize: 12, color: bt.ink3, height: 1.4),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 14),
+            GlassButton(
+              label: 'Set up categories',
+              onPressed: onOpenCategories,
+              variant: GlassButtonVariant.primary,
+              compact: true,
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

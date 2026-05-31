@@ -149,19 +149,21 @@ def _build_user_content(
     the http-multipart Content-Type is whatever the client decided to send,
     and may be `application/octet-stream` when the client doesn't bother.
 
-    PDFs and images are passed as `image_url` data URLs — LiteLLM translates
-    these to each provider's native shape (Anthropic document/image source
-    blocks, OpenAI image_url, Gemini inline_data). PDF on OpenAI models will
-    bubble up as `UnsupportedContent` from the chat call.
+    PDFs are passed as a `file` content block (LiteLLM's document shape) so it
+    routes to Anthropic's `document` source / Gemini inline_data — NOT as an
+    `image_url`, which current LiteLLM maps to an image source block that
+    rejects `application/pdf`. Images use `image_url` data URLs. PDF on OpenAI
+    models bubbles up as `UnsupportedContent` from the chat call.
     """
     kind = _classify(content, mime=mime, filename=filename)
 
     if kind == "pdf":
         return [{
-            "type": "image_url",
-            "image_url": {
-                "url": "data:application/pdf;base64," + base64.b64encode(content).decode(),
-                "format": "application/pdf",
+            "type": "file",
+            "file": {
+                "file_data": "data:application/pdf;base64,"
+                + base64.b64encode(content).decode(),
+                "filename": filename or "statement.pdf",
             },
         }]
 

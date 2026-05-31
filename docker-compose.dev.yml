@@ -1,0 +1,48 @@
+# Developer mode — both halves auto-reload on file change, in containers.
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+#   • API   → http://localhost:8000  (uvicorn --reload: restarts on save)
+#   • App   → http://localhost:8080  (Flutter dev server: hot-restart on save)
+#
+# Source is bind-mounted from the host, so your editor edits files in place and
+# the containers pick them up. The first Flutter web compile takes ~30–60s;
+# after that, saves hot-restart in a couple seconds. Data lives in the
+# `ev_dev_data` volume (separate from the production `ev_data` volume).
+services:
+  api:
+    build:
+      context: .
+      target: backend-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app/backend
+      - ev_dev_data:/data
+    environment:
+      - BUDGET_TRACE_DB=/data/budget_trace.db
+      # Optional: provider keys via env instead of the Account screen.
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+
+  web:
+    build:
+      context: .
+      target: web-dev
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./frontend:/app/frontend
+      - flutter_pub_cache:/root/.pub-cache
+    environment:
+      - WEB_PORT=8080
+      # The app runs in your browser, so it reaches the API on the host port.
+      - API_BASE_URL=http://localhost:8000
+      - PUB_CACHE=/root/.pub-cache
+    depends_on:
+      - api
+
+volumes:
+  ev_dev_data:
+  flutter_pub_cache:

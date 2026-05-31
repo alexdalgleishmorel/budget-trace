@@ -239,6 +239,11 @@ class _AppShellState extends State<AppShell> {
         transactions: _transactions,
         client: _transactionsClient,
         aiEnabled: widget.me.features.ai,
+        // AI parsing is usable only once a provider key is set AND a model is
+        // picked. Until then the dropzone falls back to CSV-only + a setup nudge.
+        aiReady: widget.me.features.ai &&
+            widget.me.selectedProviderKeyAvailable &&
+            widget.me.selectedModel.isNotEmpty,
         aiSpentUsd: widget.me.aiSpentUsd,
         onChanged: _refetchAll,
         cycleLabels: _cycleLabels,
@@ -266,7 +271,8 @@ class _AppShellState extends State<AppShell> {
     if (tab == 3) {
       return InsightsScreen(
         aiEnabled: widget.me.features.ai,
-        apiKeySet: widget.me.selectedModelKeyAvailable,
+        apiKeySet: widget.me.selectedProviderKeyAvailable,
+        modelSelected: widget.me.selectedModel.isNotEmpty,
         onOpenAccount: _openAccount,
         onSpendChanged: () => widget.onRefreshMe(),
       );

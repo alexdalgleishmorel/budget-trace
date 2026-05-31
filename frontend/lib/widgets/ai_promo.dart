@@ -25,6 +25,19 @@ class AiPromoCopy {
       'Turn on AI features in Account to drop in PDFs, screenshots, or images '
       'of statements. New imports are also auto-categorized.';
 
+  /// Upload Dropzone when AI is ON but not finished setting up (no provider
+  /// key and/or no model picked). CSV still works; this nudges the rest.
+  static const uploadSetupHeadline = 'Finish AI setup to upload PDFs & images';
+  static const uploadSetupBody =
+      'Choose a provider, add its API key, and pick a model in Account to parse '
+      'PDFs, screenshots, and images (and auto-categorize). CSV uploads work now.';
+
+  /// Insights tab when AI is ON but no model is picked yet.
+  static const insightsSetupHeadline = 'Pick a model to use Insights';
+  static const insightsSetupBody =
+      'You\'ve enabled AI — now choose a provider, add its API key, and pick a '
+      'model in Account, then come back to chat about your spending.';
+
   /// CTA used on every variant.
   static const ctaLabel = 'Open Account';
 }
@@ -49,6 +62,15 @@ class AiPromo extends StatelessWidget {
         key: key,
         headline: AiPromoCopy.uploadHeadline,
         body: AiPromoCopy.uploadBody,
+        onOpenAccount: onOpenAccount,
+        variant: AiPromoVariant.compact,
+      );
+
+  factory AiPromo.uploadSetup({Key? key, VoidCallback? onOpenAccount}) =>
+      AiPromo(
+        key: key,
+        headline: AiPromoCopy.uploadSetupHeadline,
+        body: AiPromoCopy.uploadSetupBody,
         onOpenAccount: onOpenAccount,
         variant: AiPromoVariant.compact,
       );

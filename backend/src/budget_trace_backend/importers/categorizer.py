@@ -40,7 +40,12 @@ import logging
 
 from ..db import category_id_for_path, connect, fetch_category_tree
 from ..services import ai_usage as ai_usage_svc
-from ..services.ai.client import AiKeyMissing, chat as ai_chat, get_selected_model
+from ..services.ai.client import (
+    AiKeyMissing,
+    NoModelSelected,
+    chat as ai_chat,
+    get_selected_model,
+)
 
 log = logging.getLogger(__name__)
 
@@ -184,7 +189,7 @@ def categorize_rows(transaction_ids: list[int]) -> dict:
                 ai_usage_svc.record_usage(
                     source="auto_categorize", model=model, usage=resp.get("usage") or {},
                 )
-            except AiKeyMissing as e:
+            except (AiKeyMissing, NoModelSelected) as e:
                 # History pre-apply still happens; only the unknowns are lost.
                 _apply_merchant_updates(conn, merchant_to_cat_id, pre_applied_merchants)
                 pre_applied = sum(

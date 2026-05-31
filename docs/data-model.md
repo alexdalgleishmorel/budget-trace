@@ -138,15 +138,18 @@ CREATE INDEX idx_txn_merchant ON transactions(merchant);
 CREATE UNIQUE INDEX idx_txn_source_hash
     ON transactions(source_hash) WHERE source_hash IS NOT NULL;
 
--- Per-user settings. Single-user dev today: id=1; auth lands later.
+-- Settings for the single local user (id=1). Local single-user app, no auth.
 -- `features` is a JSON blob ({"ai": true}). `theme` is one of
--- 'system' | 'light' | 'dark'. `selected_model` is a model id from
--- services/ai/registry.py (NULL → SELECTED_MODEL env var → DEFAULT_MODEL).
+-- 'system' | 'light' | 'dark'. `selected_provider` is the generic provider
+-- the user picked (anthropic|openai|google). `selected_model` is a model id
+-- fetched live from that provider into `discovered_models` (NULL → SELECTED_MODEL
+-- env → none; there is no hardcoded default model).
 CREATE TABLE users (
-    id              INTEGER PRIMARY KEY,
-    features        TEXT NOT NULL DEFAULT '{}',
-    theme           TEXT NOT NULL DEFAULT 'system',
-    selected_model  TEXT
+    id                INTEGER PRIMARY KEY,
+    features          TEXT NOT NULL DEFAULT '{}',
+    theme             TEXT NOT NULL DEFAULT 'system',
+    selected_provider TEXT NOT NULL DEFAULT 'anthropic',
+    selected_model    TEXT
 );
 
 -- One row per (user, provider). API key is plaintext (acceptable for local

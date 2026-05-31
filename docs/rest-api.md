@@ -98,10 +98,11 @@ The CategoryChip dropdown and the TransactionEditModal in the Expenses screen bo
 
 | Method | Path | Body | Returns |
 |--------|------|------|---------|
-| `GET` | `/me` | — | `{ features: { ai, widgets }, theme, providers: [...], selected_model, selected_model_provider, selected_model_key_available, available_models: [...], ai_spent_usd, last_dashboard_id }` |
-| `PATCH` | `/me` | partial: `{ features?, theme?, selected_model?, provider_keys? }` | same as GET |
+| `GET` | `/me` | — | `{ features: { ai, widgets }, theme, providers: [...], selected_provider, selected_provider_key_available, selected_model, available_models: [...], ai_spent_usd, last_dashboard_id }` |
+| `PATCH` | `/me` | partial: `{ features?, theme?, selected_provider?, selected_model?, provider_keys? }` | same as GET |
+| `POST` | `/me/models/refresh` | — | `{ provider: { provider, ok, discovered_count, skipped, error }, available_models: [...] }` — fetches the selected provider's live models |
 
-Key values themselves are **never** echoed — each entry in `providers` exposes only `api_key_set` (plus `env_fallback` when the matching env var is set). PATCH is partial: omit a field to leave it unchanged. Set or clear per-provider keys with `provider_keys: { "<provider>": "sk-..." | null }`; an empty string is a 422 (use `null` to clear). Set `selected_model` to any id from `available_models`; pass `null` to reset to env/default. `theme` is one of `system`, `light`, `dark`. `features` is a partial dict — today the only flag is `ai`. Full schema in [account.md](account.md).
+Key values themselves are **never** echoed — each entry in `providers` exposes only `api_key_set` (plus `env_fallback` when the matching env var is set). PATCH is partial: omit a field to leave it unchanged. Set or clear per-provider keys with `provider_keys: { "<provider>": "sk-..." | null }`; an empty string is a 422 (use `null` to clear). Provider-first model selection: set `selected_provider` (anthropic/openai/google — switching it clears the model), fetch that provider's models with `POST /me/models/refresh`, then set `selected_model` to any fetched id (`null` clears). There is no hardcoded model catalog. `theme` is one of `system`, `light`, `dark`. `features` is a partial dict — today the only flag is `ai`. Full schema in [account.md](account.md).
 
 Single-user dev today (id=1). The `BUDGET_TRACE_FEATURES=ai` env var still wins over the DB on the read path, useful for tests / CI. See [account.md](account.md) for the auth-TODO.
 

@@ -71,7 +71,28 @@ If you set `metric_id`, the `metric_params` shape MUST match that metric's param
 
 ## Snapshot fallback (only when no metric fits)
 
-If the answer is a novel pattern that none of the metrics above can express — e.g. a custom multi-bucket comparison, a hand-rolled drill the registry doesn't cover — emit `widget.data` directly (as today), leave `metric_id`/`metric_params`/`time_range` unset, and set `widget.fallback_reason` to one short sentence explaining what the answer needed that the registry couldn't provide. The widget will still render in chat, but a "Snapshot" badge will tell the user it's frozen — saving it to a dashboard preserves it as-is and it will not react to the dashboard's time range.
+If the answer is a novel pattern that none of the metrics above can express — e.g. a custom multi-bucket comparison, a hand-rolled drill the registry doesn't cover — emit `widget.data` directly, leave `metric_id`/`metric_params`/`time_range` unset, and set `widget.fallback_reason` to one short sentence explaining what the answer needed that the registry couldn't provide. The widget will still render in chat, but a "Snapshot" badge will tell the user it's frozen — saving it to a dashboard preserves it as-is and it will not react to the dashboard's time range.
+
+**For a snapshot widget you MUST fully populate `widget.data` yourself — copy the exact numbers from your tool results into the per-type keys.** The "leave `data` empty" shortcut applies ONLY to the metric path above; a snapshot widget with an empty or missing `data` renders nothing and is dropped. Do not put the numbers only in `text` — put them in `data` too. For example, a pie of subscriptions by merchant:
+
+```
+present_to_user(
+  text="Here's your May subscriptions, totalling $85.82.",
+  widget={
+    "type": "pie",
+    "fallback_reason": "Per-merchant subscription breakdown isn't a curated metric.",
+    "data": {
+      "slices": [
+        {"label": "Rocky Calgary Climbing", "value": 75.60},
+        {"label": "Anthropic", "value": 7.37},
+        {"label": "AWS", "value": 1.50},
+        {"label": "Apple", "value": 1.35}
+      ],
+      "total": 85.82
+    }
+  }
+)
+```
 
 Prefer a registry metric over a snapshot whenever both are reasonable. Snapshots are an audit signal for growing the registry.
 
@@ -180,6 +201,23 @@ def _build_tool_definitions() -> list[dict]:
     return [_build_tool_definition(name, fn) for name, fn in tools.items()] + [PRESENT_TOOL]
 
 
+# Reused for pie `slices`, bar `categories`, treemap `nodes` — declaring the
+# item shape (label/value) makes the model fill the array instead of emitting
+# an empty object.
+_LABEL_VALUE_ARRAY: dict = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "label": {"type": "string"},
+            "value": {"type": "number"},
+        },
+        "required": ["label", "value"],
+        "additionalProperties": True,
+    },
+}
+
+
 PRESENT_TOOL: dict = {
     "type": "function",
     "function": {
@@ -224,10 +262,35 @@ PRESENT_TOOL: dict = {
                         },
                         "data": {
                             "type": "object",
+                            # The per-type keys are declared as explicit optional
+                            # properties on purpose: models reliably fill NAMED
+                            # schema properties but frequently emit an empty `{}`
+                            # for a bare description-only object — which rendered
+                            # as "No data" even though the text had the numbers.
+                            # `additionalProperties: true` keeps it flexible
+                            # (e.g. the nested ChartSpec / extra table columns).
+                            "additionalProperties": True,
+                            "properties": {
+                                # pie → slices (+total); bar/treemap → categories/nodes
+                                "slices": _LABEL_VALUE_ARRAY,
+                                "categories": _LABEL_VALUE_ARRAY,
+                                "nodes": _LABEL_VALUE_ARRAY,
+                                "total": {"type": "number"},
+                                # query_value
+                                "value": {"type": "number"},
+                                "format": {"type": "string"},
+                                "comparison": {"type": "object", "additionalProperties": True},
+                                # table
+                                "columns": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                                "rows": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                                # timeseries
+                                "chart": {"type": "object", "additionalProperties": True},
+                            },
                             "description": (
-                                "Per-type payload. Required for snapshot widgets "
-                                "(no metric_id); ignored when metric_id is set "
-                                "(the backend resolves it from the metric). "
+                                "Per-type payload — POPULATE it with the same "
+                                "numbers as your `text`; never leave it empty. "
+                                "Required for snapshot widgets (no metric_id); "
+                                "ignored when metric_id is set. "
                                 "timeseries: {chart: ChartSpec}. "
                                 "bar: {categories: [{label, value}]}. "
                                 "pie: {slices: [{label, value}], total}. "
@@ -251,6 +314,9 @@ PRESENT_TOOL: dict = {
                         },
                         "metric_params": {
                             "type": "object",
+                            # Same reason as `data` — keep arbitrary keys so the
+                            # metric's params survive the schema validator.
+                            "additionalProperties": True,
                             "description": (
                                 "Parameters for `metric_id` matching its "
                                 "params_schema (excludes any date window — that "
@@ -361,19 +427,40 @@ def _build_widget(raw: dict) -> WidgetSpec | None:
         return _build_metric_widget(raw, metric_id)
 
     # Snapshot path — `data` is required.
-    if not isinstance(raw.get("data"), dict):
+    data = raw.get("data")
+    if not isinstance(data, dict):
         log.warning("AI emitted widget without metric_id or data: %r", raw)
+        return None
+    # Guard: a categorical chart with no entries renders as a confusing empty
+    # "No data" box. If the model emitted one anyway (despite the schema), drop
+    # the widget so the assistant's text still stands on its own.
+    if _snapshot_is_empty(raw.get("type"), data):
+        log.warning("AI emitted empty %s snapshot widget; dropping it: %r",
+                    raw.get("type"), data)
         return None
     try:
         return WidgetSpec(
             type=raw["type"],
             title=raw.get("title") or "",
-            data=raw["data"],
+            data=data,
             fallback_reason=raw.get("fallback_reason"),
         )
     except Exception:
         log.exception("invalid snapshot widget spec from model: %r", raw)
         return None
+
+
+# Per-type key that must be a non-empty list for a snapshot chart to render.
+# query_value (0 is valid) and table (0 rows can be legitimate) are exempt.
+_REQUIRED_SNAPSHOT_LIST = {"pie": "slices", "bar": "categories", "treemap": "nodes"}
+
+
+def _snapshot_is_empty(widget_type, data: dict) -> bool:
+    key = _REQUIRED_SNAPSHOT_LIST.get(widget_type)
+    if key is None:
+        return False
+    items = data.get(key)
+    return not isinstance(items, list) or len(items) == 0
 
 
 def _build_metric_widget(raw: dict, metric_id: str) -> WidgetSpec | None:

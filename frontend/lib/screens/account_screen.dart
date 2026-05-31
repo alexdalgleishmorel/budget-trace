@@ -38,6 +38,8 @@ class _AccountScreenState extends State<AccountScreen> {
   final Map<String, TextEditingController> _keyControllers = {};
   final Set<String> _visibleKeys = {};
   bool _saving = false;
+  bool _refreshingModels = false;
+  String? _modelRefreshNote;
   String? _error;
 
   @override
@@ -80,6 +82,7 @@ class _AccountScreenState extends State<AccountScreen> {
   Future<void> _patch({
     FeatureFlags? features,
     String? theme,
+    String? selectedProvider,
     String? selectedModel,
     bool selectedModelExplicit = false,
     Map<String, String?>? providerKeys,
@@ -87,11 +90,14 @@ class _AccountScreenState extends State<AccountScreen> {
     setState(() {
       _saving = true;
       _error = null;
+      // A provider switch invalidates the previous fetch summary.
+      if (selectedProvider != null) _modelRefreshNote = null;
     });
     try {
       final me = await widget.client.update(
         features: features,
         theme: theme,
+        selectedProvider: selectedProvider,
         selectedModel: selectedModel,
         selectedModelExplicit: selectedModelExplicit,
         providerKeys: providerKeys,
@@ -123,6 +129,45 @@ class _AccountScreenState extends State<AccountScreen> {
     await _patch(providerKeys: {providerId: null});
   }
 
+  Future<void> _refreshModels() async {
+    setState(() {
+      _refreshingModels = true;
+      _error = null;
+      _modelRefreshNote = null;
+    });
+    try {
+      final result = await widget.client.refreshModels();
+      // The backend persists discovered models, so a plain GET /me now
+      // returns the unioned catalog — no client-side merge needed.
+      final me = await widget.client.get();
+      if (!mounted) return;
+      setState(() {
+        _me = me;
+        _modelRefreshNote = _summarizeRefresh(result);
+      });
+      widget.onMeChanged(me);
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _refreshingModels = false);
+    }
+  }
+
+  /// One-line human summary of fetching the selected provider's models.
+  String _summarizeRefresh(ModelsRefreshResult result) {
+    final p = result.provider;
+    if (p.skipped) return 'Set an API key above, then fetch models.';
+    if (p.error != null) return 'Fetch failed: ${p.error}';
+    final n = p.discoveredCount;
+    return n == 0
+        ? 'No chat models available for this provider.'
+        : 'Found $n model${n == 1 ? '' : 's'}.';
+  }
+
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
@@ -138,19 +183,20 @@ class _AccountScreenState extends State<AccountScreen> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
         children: [
-          _AuthBanner(),
+          _LocalDataBanner(),
           if (_error != null) ...[
             const SizedBox(height: 12),
             _ErrorBanner(message: _error!),
           ],
           const SizedBox(height: 16),
-          _ExpandableSection(
-            label: 'AI features',
-            // The master toggle is always the first row inside the dropdown.
-            // The remaining controls only appear when the toggle is on —
-            // they'd be misleading otherwise (changes wouldn't take effect
-            // until the master flag was flipped back on).
-            children: [
+          // Flat AI settings — no collapsible section. The master toggle is
+          // always the top row; when AI is on you pick a provider, set its
+          // key, fetch its models, and pick one — then the spend readout.
+          BudgetCard(
+            clipContent: true,
+            padding: EdgeInsets.zero,
+            child: _DividedSections(children: [
+              // Self-describing (its own title + blurb), so no _Section label.
               _FeatureRow(
                 value: _me.features.ai,
                 busy: _saving,
@@ -158,10 +204,18 @@ class _AccountScreenState extends State<AccountScreen> {
                     features: FeatureFlags(ai: v, widgets: _me.features.widgets)),
               ),
               if (_me.features.ai) ...[
-                _SubControl(
-                  label: 'API keys',
-                  child: _ApiKeysList(
-                    providers: _me.providers,
+                _Section(
+                  label: 'Provider',
+                  child: _ProviderRow(
+                    me: _me,
+                    busy: _saving || _refreshingModels,
+                    onPick: (id) => _patch(selectedProvider: id),
+                  ),
+                ),
+                _Section(
+                  label: 'API key',
+                  child: _SelectedProviderKey(
+                    me: _me,
                     controllers: _controllerFor,
                     visible: _visibleKeys,
                     onToggleVisibility: (id) => setState(() {
@@ -175,27 +229,26 @@ class _AccountScreenState extends State<AccountScreen> {
                     onClear: _saving ? null : _clearKey,
                   ),
                 ),
-                _SubControl(
-                  label: 'AI Spend',
-                  child: _SpendRow(me: _me),
-                ),
-                _SubControl(
+                _Section(
                   label: 'Model',
                   child: _ModelRow(
                     me: _me,
                     busy: _saving,
+                    refreshing: _refreshingModels,
+                    refreshNote: _modelRefreshNote,
+                    onRefresh: _refreshingModels ? null : _refreshModels,
                     onPick: (id) => _patch(
                       selectedModel: id,
                       selectedModelExplicit: true,
                     ),
-                    onReset: () => _patch(
-                      selectedModel: null,
-                      selectedModelExplicit: true,
-                    ),
                   ),
                 ),
+                _Section(
+                  label: 'AI spend',
+                  child: _SpendRow(me: _me),
+                ),
               ],
-            ],
+            ]),
           ),
         ],
       ),
@@ -203,79 +256,33 @@ class _AccountScreenState extends State<AccountScreen> {
   }
 }
 
-/// Collapsible card. Renders as a `BudgetCard` whose first row is the
-/// tappable header (label + chevron). When expanded, [children] are stacked
-/// inside the same card, separated by hairline dividers.
-class _ExpandableSection extends StatefulWidget {
-  const _ExpandableSection({required this.label, required this.children});
+/// Stacks its [children] inside a card, separated by hairline dividers, each
+/// padded uniformly. Used to lay out the flat Account settings sections.
+class _DividedSections extends StatelessWidget {
+  const _DividedSections({required this.children});
 
-  final String label;
   final List<Widget> children;
 
   @override
-  State<_ExpandableSection> createState() => _ExpandableSectionState();
-}
-
-class _ExpandableSectionState extends State<_ExpandableSection> {
-  bool _expanded = false;
-
-  @override
   Widget build(BuildContext context) {
-    final bt = context.bt;
     final body = <Widget>[];
-    for (var i = 0; i < widget.children.length; i++) {
-      body.add(const BudgetDivider());
+    for (var i = 0; i < children.length; i++) {
+      if (i > 0) body.add(const BudgetDivider());
       body.add(Padding(
         padding: const EdgeInsets.all(16),
-        child: widget.children[i],
+        child: children[i],
       ));
     }
-    return BudgetCard(
-      clipContent: true,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          InkWell(
-            onTap: () => setState(() => _expanded = !_expanded),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Row(
-                children: [
-                  Expanded(child: BudgetLabel(widget.label)),
-                  Icon(
-                    _expanded
-                        ? Icons.keyboard_arrow_up
-                        : Icons.keyboard_arrow_down,
-                    size: 18,
-                    color: bt.ink4,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          AnimatedCrossFade(
-            duration: const Duration(milliseconds: 180),
-            firstChild: const SizedBox(width: double.infinity),
-            secondChild: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: body,
-            ),
-            crossFadeState: _expanded
-                ? CrossFadeState.showSecond
-                : CrossFadeState.showFirst,
-            sizeCurve: Curves.easeOut,
-          ),
-        ],
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: body,
     );
   }
 }
 
-/// Sub-control inside an [_ExpandableSection]: a small uppercase label
-/// above the [child]. The wrapping card and dividers are owned by the
-/// parent section, so this is just the label-above-content pairing.
-class _SubControl extends StatelessWidget {
-  const _SubControl({required this.label, required this.child});
+/// A small uppercase label above its [child].
+class _Section extends StatelessWidget {
+  const _Section({required this.label, required this.child});
 
   final String label;
   final Widget child;
@@ -293,31 +300,77 @@ class _SubControl extends StatelessWidget {
   }
 }
 
-class _AuthBanner extends StatelessWidget {
+class _LocalDataBanner extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: bt.warnBg,
+        color: bt.glass2,
         borderRadius: BudgetRadius.smBR,
-        border: Border.all(color: bt.warn.withValues(alpha: 0.35)),
+        border: Border.all(color: bt.glassBorder),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(Icons.info_outline, size: 16, color: bt.warn),
+          Icon(Icons.lock_outline, size: 16, color: bt.ink3),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
-              'Single-user mode — auth is not yet implemented. Your API '
-              'keys are stored unencrypted in local SQLite.',
+              'Everything — transactions, categories, settings, and API keys — '
+              'is stored only on this machine in a local database (a Docker '
+              'volume). Nothing leaves your computer except the requests you '
+              'send to the AI provider you configure.',
               style: TextStyle(fontSize: 12, color: bt.ink2, height: 1.4),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// The single API-key row for the currently-selected model's provider.
+/// Switching the model swaps which provider's key field is shown.
+class _SelectedProviderKey extends StatelessWidget {
+  const _SelectedProviderKey({
+    required this.me,
+    required this.controllers,
+    required this.visible,
+    required this.onToggleVisibility,
+    required this.onSave,
+    required this.onClear,
+  });
+
+  final Me me;
+  final TextEditingController Function(String providerId) controllers;
+  final Set<String> visible;
+  final ValueChanged<String> onToggleVisibility;
+  final void Function(String providerId)? onSave;
+  final void Function(String providerId)? onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    final matches =
+        me.providers.where((p) => p.id == me.selectedProvider);
+    final provider = matches.isEmpty ? null : matches.first;
+    if (provider == null) {
+      return Text(
+        'No provider selected.',
+        style: TextStyle(fontSize: 11.5, color: bt.ink4),
+      );
+    }
+    return _ApiKeyRow(
+      provider: provider,
+      controller: controllers(provider.id),
+      showKey: visible.contains(provider.id),
+      onToggleVisibility: () => onToggleVisibility(provider.id),
+      onSave: onSave == null ? null : () => onSave!(provider.id),
+      onClear: (onClear == null || !provider.apiKeySet)
+          ? null
+          : () => onClear!(provider.id),
     );
   }
 }
@@ -395,52 +448,6 @@ class _FeatureRow extends StatelessWidget {
         ),
       ],
     );
-  }
-}
-
-/// One row per provider known by the backend, rendered in registry order.
-/// The list is fully data-driven — adding a provider in services/ai/registry.py
-/// makes it show up here without a frontend change.
-class _ApiKeysList extends StatelessWidget {
-  const _ApiKeysList({
-    required this.providers,
-    required this.controllers,
-    required this.visible,
-    required this.onToggleVisibility,
-    required this.onSave,
-    required this.onClear,
-  });
-
-  final List<ProviderStatus> providers;
-  final TextEditingController Function(String providerId) controllers;
-  final Set<String> visible;
-  final ValueChanged<String> onToggleVisibility;
-  final void Function(String providerId)? onSave;
-  final void Function(String providerId)? onClear;
-
-  @override
-  Widget build(BuildContext context) {
-    if (providers.isEmpty) {
-      final bt = context.bt;
-      return Text(
-        'No providers configured on the backend.',
-        style: TextStyle(fontSize: 11.5, color: bt.ink4),
-      );
-    }
-    final rows = <Widget>[];
-    for (var i = 0; i < providers.length; i++) {
-      if (i > 0) rows.add(const SizedBox(height: 14));
-      final p = providers[i];
-      rows.add(_ApiKeyRow(
-        provider: p,
-        controller: controllers(p.id),
-        showKey: visible.contains(p.id),
-        onToggleVisibility: () => onToggleVisibility(p.id),
-        onSave: onSave == null ? null : () => onSave!(p.id),
-        onClear: (onClear == null || !p.apiKeySet) ? null : () => onClear!(p.id),
-      ));
-    }
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 }
 
@@ -608,115 +615,168 @@ class _SpendRow extends StatelessWidget {
   }
 }
 
-class _ModelRow extends StatelessWidget {
-  const _ModelRow({
+/// Generic-provider picker (Anthropic / OpenAI / Google). Data-driven from
+/// `me.providers`. Switching the provider clears the selected model server-side
+/// and swaps which key field + model list show.
+class _ProviderRow extends StatelessWidget {
+  const _ProviderRow({
     required this.me,
     required this.busy,
     required this.onPick,
-    required this.onReset,
   });
 
   final Me me;
   final bool busy;
   final ValueChanged<String> onPick;
-  final VoidCallback onReset;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final options = me.availableModels;
-    // Guard against an unexpected model id (e.g. env-pinned model not in
-    // the registry). Show the dropdown's current value as the resolved id
-    // even if it's not in the list — Dart's DropdownButtonFormField requires
-    // the value to be in items, so synthesise an entry if needed.
-    final ids = options.map((m) => m.id).toSet();
-    final hasCurrent = ids.contains(me.selectedModel);
-    final providerLookup = {for (final p in me.providers) p.id: p.displayName};
-    final items = [
-      ...options.map(
-        (m) => DropdownMenuItem<String>(
-          value: m.id,
-          child: _ModelMenuItem(
-            option: m,
-            providerName: providerLookup[m.provider] ?? m.provider,
-          ),
-        ),
-      ),
-      if (!hasCurrent)
-        DropdownMenuItem<String>(
-          value: me.selectedModel,
-          child: Text(
-            me.selectedModel,
-            style: TextStyle(fontSize: 13, color: bt.ink2),
-          ),
-        ),
-    ];
-
-    final providerName =
-        providerLookup[me.selectedModelProvider] ?? me.selectedModelProvider;
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         DropdownButtonFormField<String>(
-          // ValueKey re-mounts the form field whenever the resolved model
-          // changes externally (e.g. "Reset to default") so the new
-          // `initialValue` actually takes effect.
-          key: ValueKey(me.selectedModel),
-          initialValue: me.selectedModel,
+          key: ValueKey(me.selectedProvider),
+          initialValue: me.selectedProvider,
           isDense: true,
           dropdownColor: BudgetColors.bgGrad[1],
           decoration: InputDecoration(
             isDense: true,
             border: OutlineInputBorder(borderRadius: BudgetRadius.inputBR),
           ),
-          items: items,
+          items: [
+            for (final p in me.providers)
+              DropdownMenuItem<String>(
+                value: p.id,
+                child: Text(p.displayName,
+                    style: TextStyle(fontSize: 13, color: bt.ink)),
+              ),
+          ],
           onChanged: busy ? null : (v) {
-            if (v != null) onPick(v);
+            if (v != null && v != me.selectedProvider) onPick(v);
           },
         ),
-        if (!me.selectedModelKeyAvailable) ...[
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            decoration: BoxDecoration(
-              color: bt.warnBg,
-              borderRadius: BudgetRadius.smBR,
-              border: Border.all(color: bt.warn.withValues(alpha: 0.35)),
+        const SizedBox(height: 8),
+        Text(
+          'Set this provider\'s API key below, then fetch its models.',
+          style: TextStyle(fontSize: 11.5, color: bt.ink4, height: 1.4),
+        ),
+      ],
+    );
+  }
+}
+
+/// Model picker for the selected provider. The list is fetched live (no
+/// hardcoded catalog) via the "Fetch models" button; empty until then.
+class _ModelRow extends StatelessWidget {
+  const _ModelRow({
+    required this.me,
+    required this.busy,
+    required this.refreshing,
+    required this.refreshNote,
+    required this.onRefresh,
+    required this.onPick,
+  });
+
+  final Me me;
+  final bool busy;
+  final bool refreshing;
+  final String? refreshNote;
+  final VoidCallback? onRefresh;
+  final ValueChanged<String> onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final bt = context.bt;
+    final options = me.availableModels;
+    final providerLookup = {for (final p in me.providers) p.id: p.displayName};
+    final providerName =
+        providerLookup[me.selectedProvider] ?? me.selectedProvider;
+    final hasModels = options.isNotEmpty;
+    // DropdownButtonFormField needs its value to be among the items. Use null
+    // when nothing is picked (or the pick isn't in the fetched list).
+    final ids = options.map((m) => m.id).toSet();
+    final currentValue =
+        ids.contains(me.selectedModel) ? me.selectedModel : null;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (hasModels)
+          DropdownButtonFormField<String>(
+            key: ValueKey('${me.selectedProvider}:${me.selectedModel}'),
+            initialValue: currentValue,
+            isDense: true,
+            dropdownColor: BudgetColors.bgGrad[1],
+            decoration: InputDecoration(
+              isDense: true,
+              hintText: 'Select a model…',
+              border: OutlineInputBorder(borderRadius: BudgetRadius.inputBR),
             ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(Icons.warning_amber_rounded, size: 14, color: bt.warn),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '$providerName API key not set — AI features won\'t work '
-                    'until you add one above (or switch to a model whose '
-                    'provider has a key).',
-                    style: TextStyle(
-                        fontSize: 11.5, color: bt.ink2, height: 1.4),
+            items: [
+              for (final m in options)
+                DropdownMenuItem<String>(
+                  value: m.id,
+                  child: _ModelMenuItem(
+                    option: m,
+                    providerName: providerLookup[m.provider] ?? m.provider,
                   ),
                 ),
-              ],
+            ],
+            onChanged: busy ? null : (v) {
+              if (v != null) onPick(v);
+            },
+          )
+        else
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              color: bt.glass2,
+              borderRadius: BudgetRadius.smBR,
+              border: Border.all(color: bt.glassBorder),
+            ),
+            child: Text(
+              me.selectedProviderKeyAvailable
+                  ? 'No models fetched for $providerName yet — tap "Fetch '
+                      'models".'
+                  : 'Set a $providerName API key above, then tap "Fetch '
+                      'models".',
+              style: TextStyle(fontSize: 12, color: bt.ink3, height: 1.4),
             ),
           ),
-        ],
         const SizedBox(height: 10),
         Row(
           children: [
-            Expanded(
-              child: Text(
-                'AI calls (chat, parser, auto-categorize) all use this model. '
-                'Pricing affects the spend chip above.',
-                style: TextStyle(fontSize: 11.5, color: bt.ink4, height: 1.4),
-              ),
-            ),
-            TextButton(
-              onPressed: busy ? null : onReset,
-              child: const Text('Reset to default'),
+            TextButton.icon(
+              onPressed:
+                  (busy || refreshing || !me.selectedProviderKeyAvailable)
+                      ? null
+                      : onRefresh,
+              icon: refreshing
+                  ? const SizedBox(
+                      width: 13,
+                      height: 13,
+                      child: CircularProgressIndicator(strokeWidth: 1.8),
+                    )
+                  : Icon(Icons.refresh, size: 16, color: bt.accent),
+              label: Text(refreshing ? 'Fetching…' : 'Fetch models'),
             ),
           ],
+        ),
+        if (refreshNote != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            refreshNote!,
+            style: TextStyle(fontSize: 11.5, color: bt.ink3, height: 1.4),
+          ),
+        ],
+        const SizedBox(height: 4),
+        Text(
+          'Fetches the live model list $providerName offers (uses the key '
+          'above). AI calls use the model you pick; new models may show '
+          'without pricing until it\'s published.',
+          style: TextStyle(fontSize: 11, color: bt.ink4, height: 1.4),
         ),
       ],
     );
@@ -741,8 +801,10 @@ class _ModelMenuItem extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          '${_formatPrice(option.inputPerMtok)}/MTok in · '
-          '${_formatPrice(option.outputPerMtok)}/MTok out',
+          option.pricingAvailable
+              ? '${_formatPrice(option.inputPerMtok)}/MTok in · '
+                  '${_formatPrice(option.outputPerMtok)}/MTok out'
+              : 'pricing n/a',
           style: TextStyle(fontSize: 11, color: bt.ink4),
         ),
       ],

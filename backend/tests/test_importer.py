@@ -245,6 +245,18 @@ def test_post_import_ai_missing_key_returns_400(
     for var in ("ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
         monkeypatch.delenv(var, raising=False)
 
+    # Pick a (fetched) model so the parser reaches the key check rather than
+    # failing earlier with no_model_selected.
+    from budget_trace_backend import features
+    from budget_trace_backend.services.ai import discovery
+    discovery._replace_provider_models("anthropic", [
+        discovery.DiscoveredModel(
+            id="claude-test", provider="anthropic", display_name="claude-test",
+            input_per_mtok=3.0, output_per_mtok=15.0,
+            cache_write_per_mtok=None, cache_read_per_mtok=None, pricing_available=True),
+    ])
+    features.update_me(selected_model="claude-test")
+
     resp = client.post(
         "/transactions/import",
         data={"parser": "ai"},
@@ -268,15 +280,15 @@ def test_post_import_unknown_parser_returns_422(client: TestClient) -> None:
 
 def test_ai_parser_detects_pdf_via_magic_bytes() -> None:
     # %PDF- signature wins even when mime + filename are missing/wrong.
-    # Content is now passed as an OpenAI/LiteLLM-style image_url data URL;
-    # LiteLLM translates per-provider.
+    # PDFs are sent as a LiteLLM `file` block → Anthropic `document` source
+    # (an `image_url` PDF would 400 on Anthropic as an image media_type).
     block = _build_user_content(
         b"%PDF-1.7\n...binary stream...",
         mime="application/octet-stream",
         filename=None,
     )[0]
-    assert block["type"] == "image_url"
-    assert block["image_url"]["url"].startswith("data:application/pdf;base64,")
+    assert block["type"] == "file"
+    assert block["file"]["file_data"].startswith("data:application/pdf;base64,")
 
 
 def test_ai_parser_detects_pdf_via_filename_when_mime_unknown() -> None:
@@ -286,8 +298,9 @@ def test_ai_parser_detects_pdf_via_filename_when_mime_unknown() -> None:
         mime="application/octet-stream",
         filename="statement.pdf",
     )[0]
-    assert block["type"] == "image_url"
-    assert block["image_url"]["url"].startswith("data:application/pdf;base64,")
+    assert block["type"] == "file"
+    assert block["file"]["file_data"].startswith("data:application/pdf;base64,")
+    assert block["file"]["filename"] == "statement.pdf"
 
 
 def test_ai_parser_detects_text_csv() -> None:

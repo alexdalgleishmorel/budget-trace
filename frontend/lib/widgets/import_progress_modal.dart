@@ -6,44 +6,58 @@ import '../theme/app_theme.dart';
 import 'budget_card.dart';
 import 'cat_icon.dart';
 
+/// One file to import: its display name and the closure that uploads it.
+class ImportJob {
+  const ImportJob({required this.filename, required this.upload});
+
+  final String filename;
+  final Future<ImportResult> Function() upload;
+}
+
+/// Outcome of a single file — exactly one of [result] / [error] is set.
+class _Outcome {
+  const _Outcome({required this.filename, this.result, this.error});
+
+  final String filename;
+  final ImportResult? result;
+  final Object? error;
+
+  bool get ok => result != null;
+}
+
 /// Blocking dialog for the statement-import flow. Opens the moment the user
-/// picks a file and stays up through three internal states:
+/// picks one or more files and stays up through two internal states:
 ///
-/// 1. **inProgress** — indeterminate `LinearProgressIndicator`, filename, and
-///    a status line that nudges the user about wait time when AI parsing is
-///    on. No fake percentages — we don't have phase-streaming from the
-///    backend, and pretending we do would be dishonest.
-/// 2. **success** — stats grid (Added / Duplicates / Failed / Categorized)
-///    with a contextual headline. Distinguishes the dedupe re-upload case
-///    ("All rows already imported") from a true "nothing parsed" case.
-/// 3. **error** — friendly headline keyed off `ApiException.code`, raw
-///    message in a code block as fallback.
+/// 1. **inProgress** — indeterminate `LinearProgressIndicator`, the file
+///    currently uploading ("Importing file 2 of 3 — …"), and a wait-time
+///    nudge when AI parsing is on. Files upload sequentially, each reusing the
+///    single-file `POST /transactions/import` endpoint; a file that fails is
+///    recorded and the rest still run.
+/// 2. **done** — aggregate stats (Added / Duplicates / Failed / Categorized)
+///    summed across files, with a contextual headline and, when more than one
+///    file was selected or any file failed, a per-file breakdown.
 ///
-/// Static [show] kicks the whole thing off — caller passes a closure that
-/// performs the actual upload and returns an [ImportResult].
+/// Static [show] kicks the whole thing off — the caller passes the list of
+/// [ImportJob]s to run.
 class ImportProgressModal extends StatefulWidget {
   const ImportProgressModal._({
-    required this.upload,
-    required this.filename,
+    required this.jobs,
     required this.aiEnabled,
   });
 
-  final Future<ImportResult> Function() upload;
-  final String filename;
+  final List<ImportJob> jobs;
   final bool aiEnabled;
 
   static Future<void> show({
     required BuildContext context,
-    required Future<ImportResult> Function() upload,
-    required String filename,
+    required List<ImportJob> jobs,
     required bool aiEnabled,
   }) {
     return showDialog<void>(
       context: context,
       barrierDismissible: false,
       builder: (_) => ImportProgressModal._(
-        upload: upload,
-        filename: filename,
+        jobs: jobs,
         aiEnabled: aiEnabled,
       ),
     );
@@ -53,13 +67,13 @@ class ImportProgressModal extends StatefulWidget {
   State<ImportProgressModal> createState() => _ImportProgressModalState();
 }
 
-enum _Phase { inProgress, success, error }
+enum _Phase { inProgress, done }
 
 class _ImportProgressModalState extends State<ImportProgressModal> {
   _Phase _phase = _Phase.inProgress;
-  ImportResult? _result;
-  Object? _error;
-  bool _showRowErrors = false;
+  final List<_Outcome> _outcomes = [];
+  int _currentIndex = 0;
+  bool _showDetails = false;
 
   @override
   void initState() {
@@ -68,20 +82,20 @@ class _ImportProgressModalState extends State<ImportProgressModal> {
   }
 
   Future<void> _run() async {
-    try {
-      final r = await widget.upload();
+    for (var i = 0; i < widget.jobs.length; i++) {
       if (!mounted) return;
-      setState(() {
-        _result = r;
-        _phase = _Phase.success;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e;
-        _phase = _Phase.error;
-      });
+      setState(() => _currentIndex = i);
+      final job = widget.jobs[i];
+      try {
+        final r = await job.upload();
+        _outcomes.add(_Outcome(filename: job.filename, result: r));
+      } catch (e) {
+        // A single file failing doesn't abort the batch.
+        _outcomes.add(_Outcome(filename: job.filename, error: e));
+      }
     }
+    if (!mounted) return;
+    setState(() => _phase = _Phase.done);
   }
 
   @override
@@ -96,20 +110,17 @@ class _ImportProgressModalState extends State<ImportProgressModal> {
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
           child: switch (_phase) {
             _Phase.inProgress => _InProgressBody(
-                filename: widget.filename,
+                total: widget.jobs.length,
+                currentIndex: _currentIndex,
+                filename: widget.jobs[_currentIndex].filename,
                 aiEnabled: widget.aiEnabled,
                 bt: bt,
               ),
-            _Phase.success => _SuccessBody(
-                result: _result!,
-                showRowErrors: _showRowErrors,
-                onToggleRowErrors: () =>
-                    setState(() => _showRowErrors = !_showRowErrors),
-                onClose: () => Navigator.of(context).pop(),
-                bt: bt,
-              ),
-            _Phase.error => _ErrorBody(
-                error: _error!,
+            _Phase.done => _SummaryBody(
+                outcomes: _outcomes,
+                showDetails: _showDetails,
+                onToggleDetails: () =>
+                    setState(() => _showDetails = !_showDetails),
                 onClose: () => Navigator.of(context).pop(),
                 bt: bt,
               ),
@@ -124,17 +135,22 @@ class _ImportProgressModalState extends State<ImportProgressModal> {
 
 class _InProgressBody extends StatelessWidget {
   const _InProgressBody({
+    required this.total,
+    required this.currentIndex,
     required this.filename,
     required this.aiEnabled,
     required this.bt,
   });
 
+  final int total;
+  final int currentIndex;
   final String filename;
   final bool aiEnabled;
   final BudgetTheme bt;
 
   @override
   Widget build(BuildContext context) {
+    final multi = total > 1;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -145,7 +161,7 @@ class _InProgressBody extends StatelessWidget {
                 size: 18, strokeWidth: 1.8, color: bt.ink2),
             const SizedBox(width: 10),
             Text(
-              'Importing statement',
+              multi ? 'Importing statements' : 'Importing statement',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -165,13 +181,15 @@ class _InProgressBody extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         Text(
-          'Processing your statement…',
+          multi
+              ? 'Importing file ${currentIndex + 1} of $total…'
+              : 'Processing your statement…',
           style: TextStyle(fontSize: 13, color: bt.ink2, height: 1.4),
         ),
         if (aiEnabled) ...[
           const SizedBox(height: 4),
           Text(
-            'AI parsing can take 5–30 seconds.',
+            'AI parsing can take 5–30 seconds per file.',
             style: TextStyle(fontSize: 12, color: bt.ink4, height: 1.4),
           ),
         ],
@@ -183,39 +201,62 @@ class _InProgressBody extends StatelessWidget {
   }
 }
 
-// ── Success ─────────────────────────────────────────────────────────────────
+// ── Summary (aggregate of all files) ─────────────────────────────────────────
 
-class _SuccessBody extends StatelessWidget {
-  const _SuccessBody({
-    required this.result,
-    required this.showRowErrors,
-    required this.onToggleRowErrors,
+class _SummaryBody extends StatelessWidget {
+  const _SummaryBody({
+    required this.outcomes,
+    required this.showDetails,
+    required this.onToggleDetails,
     required this.onClose,
     required this.bt,
   });
 
-  final ImportResult result;
-  final bool showRowErrors;
-  final VoidCallback onToggleRowErrors;
+  final List<_Outcome> outcomes;
+  final bool showDetails;
+  final VoidCallback onToggleDetails;
   final VoidCallback onClose;
   final BudgetTheme bt;
 
+  int get _added =>
+      outcomes.fold(0, (s, o) => s + (o.result?.rowsInserted ?? 0));
+  int get _duplicates =>
+      outcomes.fold(0, (s, o) => s + (o.result?.rowsSkippedDuplicate ?? 0));
+  int get _failedRows =>
+      outcomes.fold(0, (s, o) => s + (o.result?.rowsFailed ?? 0));
+  int get _categorized => outcomes.fold(0, (s, o) {
+        final c = o.result?.categorization;
+        return s + (c != null && c.error == null ? c.categorized : 0);
+      });
+  int get _filesFailed => outcomes.where((o) => !o.ok).length;
+  bool get _anyCategorized => outcomes.any((o) {
+        final c = o.result?.categorization;
+        return c != null && c.error == null;
+      });
+  bool get _anyKeyMissing => outcomes.any((o) {
+        final c = o.result?.categorization;
+        return c != null && c.error == 'ai_key_missing';
+      });
+
   String get _headline {
-    if (result.rowsInserted > 0) {
-      return 'Imported ${result.rowsInserted} '
-          '${result.rowsInserted == 1 ? "transaction" : "transactions"}';
+    final fileCount = outcomes.length;
+    final fileSuffix = fileCount > 1 ? ' from $fileCount files' : '';
+    if (_added > 0) {
+      return 'Imported $_added '
+          '${_added == 1 ? "transaction" : "transactions"}$fileSuffix';
     }
-    if (result.rowsSkippedDuplicate > 0) return 'All rows already imported';
-    if (result.rowsParsed == 0) return 'No transactions detected';
-    return 'Nothing imported';
+    if (_filesFailed == outcomes.length) return 'Import failed';
+    if (_duplicates > 0) return 'All rows already imported';
+    return 'No transactions detected';
   }
 
   @override
   Widget build(BuildContext context) {
-    final categorization = result.categorization;
-    final showCategorized = categorization != null && categorization.error == null;
-    final categorizeKeyMissing =
-        categorization != null && categorization.error == 'ai_key_missing';
+    final allFailed = _filesFailed == outcomes.length;
+    final multi = outcomes.length > 1;
+    // Show the per-file breakdown control when there's more than one file, or
+    // when a single file failed and we have detail to expose.
+    final hasDetail = multi || _filesFailed > 0;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -226,13 +267,13 @@ class _SuccessBody extends StatelessWidget {
             Container(
               width: 28, height: 28,
               decoration: BoxDecoration(
-                color: bt.posBg,
+                color: allFailed ? bt.negBg : bt.posBg,
                 borderRadius: const BorderRadius.all(Radius.circular(8)),
-                border: Border.all(color: bt.posBorder),
+                border: Border.all(color: allFailed ? bt.negBorder : bt.posBorder),
               ),
               alignment: Alignment.center,
-              child: BudgetIcons.build('check',
-                  size: 14, strokeWidth: 2, color: bt.pos),
+              child: BudgetIcons.build(allFailed ? 'alert' : 'check',
+                  size: 14, strokeWidth: 2, color: allFailed ? bt.neg : bt.pos),
             ),
             const SizedBox(width: 10),
             Expanded(
@@ -247,50 +288,133 @@ class _SuccessBody extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 14),
-        _StatsGrid(
-          stats: [
-            _Stat(label: 'Added', value: result.rowsInserted, color: bt.pos),
-            if (result.rowsSkippedDuplicate > 0)
-              _Stat(label: 'Duplicates', value: result.rowsSkippedDuplicate, color: bt.ink3),
-            if (result.rowsFailed > 0)
-              _Stat(label: 'Failed', value: result.rowsFailed, color: bt.warn),
-            if (showCategorized)
-              _Stat(label: 'Categorized', value: categorization.categorized, color: bt.ink3),
-          ],
-          bt: bt,
-        ),
-        if (result.rowsFailed > 0) ...[
-          const SizedBox(height: 12),
-          GestureDetector(
-            onTap: onToggleRowErrors,
-            child: Row(
-              children: [
-                BudgetIcons.build(showRowErrors ? 'chevron-down' : 'chevron-right',
-                    size: 12, strokeWidth: 1.8, color: bt.ink4),
-                const SizedBox(width: 6),
-                Text(
-                  '${result.rowsFailed} row${result.rowsFailed == 1 ? "" : "s"} '
-                  'couldn\'t be parsed and were skipped',
-                  style: TextStyle(fontSize: 12, color: bt.ink4),
-                ),
-              ],
-            ),
+        if (!allFailed) ...[
+          const SizedBox(height: 14),
+          _StatsGrid(
+            stats: [
+              _Stat(label: 'Added', value: _added, color: bt.pos),
+              if (_duplicates > 0)
+                _Stat(label: 'Duplicates', value: _duplicates, color: bt.ink3),
+              if (_failedRows > 0)
+                _Stat(label: 'Failed', value: _failedRows, color: bt.warn),
+              if (_anyCategorized)
+                _Stat(label: 'Categorized', value: _categorized, color: bt.ink3),
+            ],
+            bt: bt,
           ),
-          if (showRowErrors) ...[
-            const SizedBox(height: 8),
-            _ErrorList(errors: result.errors.take(3).toList(), bt: bt),
-          ],
         ],
-        if (categorizeKeyMissing) ...[
+        if (_filesFailed > 0) ...[
+          const SizedBox(height: 12),
+          Text(
+            '$_filesFailed of ${outcomes.length} file'
+            '${outcomes.length == 1 ? "" : "s"} couldn\'t be imported.',
+            style: TextStyle(fontSize: 12, color: bt.warn, height: 1.45),
+          ),
+        ],
+        if (_anyKeyMissing) ...[
           const SizedBox(height: 12),
           Text(
             'Auto-categorize was skipped — set an API key in Account to enable it.',
             style: TextStyle(fontSize: 12, color: bt.ink4, height: 1.45),
           ),
         ],
+        if (hasDetail) ...[
+          const SizedBox(height: 12),
+          GestureDetector(
+            onTap: onToggleDetails,
+            child: Row(
+              children: [
+                BudgetIcons.build(showDetails ? 'chevron-down' : 'chevron-right',
+                    size: 12, strokeWidth: 1.8, color: bt.ink4),
+                const SizedBox(width: 6),
+                Text(
+                  showDetails ? 'Hide per-file details' : 'Per-file details',
+                  style: TextStyle(fontSize: 12, color: bt.ink4),
+                ),
+              ],
+            ),
+          ),
+          if (showDetails) ...[
+            const SizedBox(height: 8),
+            _PerFileList(outcomes: outcomes, bt: bt),
+          ],
+        ],
         const SizedBox(height: 18),
         _PrimaryButton(label: 'Done', onTap: onClose, bt: bt),
+      ],
+    );
+  }
+}
+
+/// One line per file: filename + its summary (or failure reason).
+class _PerFileList extends StatelessWidget {
+  const _PerFileList({required this.outcomes, required this.bt});
+  final List<_Outcome> outcomes;
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: bt.surface2,
+        borderRadius: const BorderRadius.all(Radius.circular(8)),
+        border: Border.all(color: bt.rule),
+      ),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (var i = 0; i < outcomes.length; i++) ...[
+            if (i > 0) const SizedBox(height: 8),
+            _PerFileRow(outcome: outcomes[i], bt: bt),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _PerFileRow extends StatelessWidget {
+  const _PerFileRow({required this.outcome, required this.bt});
+  final _Outcome outcome;
+  final BudgetTheme bt;
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = outcome.ok;
+    final detail =
+        ok ? outcome.result!.summary : friendlyImportError(outcome.error!).body;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: BudgetIcons.build(ok ? 'check' : 'alert',
+              size: 12, strokeWidth: 2, color: ok ? bt.pos : bt.neg),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                outcome.filename,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontFamily: 'monospace',
+                  fontSize: 11.5,
+                  color: bt.ink2,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                detail,
+                style: TextStyle(fontSize: 11, color: bt.ink4, height: 1.4),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
@@ -355,162 +479,47 @@ class _StatsGrid extends StatelessWidget {
   }
 }
 
-class _ErrorList extends StatelessWidget {
-  const _ErrorList({required this.errors, required this.bt});
-  final List<Map<String, dynamic>> errors;
-  final BudgetTheme bt;
+// ── Friendly error mapping (per file) ────────────────────────────────────────
 
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: bt.surface2,
-        borderRadius: const BorderRadius.all(Radius.circular(8)),
-        border: Border.all(color: bt.rule),
-      ),
-      padding: const EdgeInsets.all(10),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: errors.map((e) {
-          final row = e['row'];
-          final reason = e['reason'] ?? '(no detail)';
-          return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            child: Text(
-              row != null ? 'row $row — $reason' : '$reason',
-              style: TextStyle(
-                fontFamily: 'monospace',
-                fontSize: 11.5,
-                color: bt.ink3,
-                height: 1.5,
-              ),
-            ),
-          );
-        }).toList(),
-      ),
-    );
-  }
-}
-
-// ── Error ───────────────────────────────────────────────────────────────────
-
-class _ErrorBody extends StatelessWidget {
-  const _ErrorBody({
-    required this.error,
-    required this.onClose,
-    required this.bt,
-  });
-
-  final Object error;
-  final VoidCallback onClose;
-  final BudgetTheme bt;
-
-  ({String headline, String body}) get _content {
-    if (error is ApiException) {
-      final e = error as ApiException;
-      switch (e.code) {
-        case 'csv_parse_failed':
-          return (
-            headline: "Couldn't read your CSV",
-            body: e.message,
-          );
-        case 'ai_key_missing':
-          return (
-            headline: 'AI features need an API key',
-            body: 'Set one in Account, then try again.',
-          );
-        case 'feature_disabled':
-          return (
-            headline: 'AI parsing is turned off',
-            body: 'Enable AI features in Account to parse PDFs.',
-          );
-        case 'unsupported_file_type':
-          return (
-            headline: "Couldn't read this file",
-            body: 'Supported: PDF, image (PNG/JPEG/WebP/GIF), CSV. '
-                'No tokens were used — nothing was sent to the model.',
-          );
-        case 'unsupported_content':
-          return (
-            headline: 'Selected model can\'t read this',
-            body: '${e.message} '
-                'PDF uploads work on Anthropic and Google models.',
-          );
-        default:
-          return (
-            headline: 'Import failed',
-            body: e.message,
-          );
-      }
+/// Maps an import failure to a short headline + body. Shared by the per-file
+/// breakdown so an `ApiException.code` becomes human-readable.
+({String headline, String body}) friendlyImportError(Object error) {
+  if (error is ApiException) {
+    switch (error.code) {
+      case 'csv_parse_failed':
+        return (headline: "Couldn't read your CSV", body: error.message);
+      case 'ai_key_missing':
+        return (
+          headline: 'AI features need an API key',
+          body: 'Set one in Account, then try again.',
+        );
+      case 'no_model_selected':
+        return (
+          headline: 'Pick an AI model',
+          body: 'Choose a provider, fetch its models, and pick one in Account, '
+              'then try again. (CSV uploads work without a model.)',
+        );
+      case 'feature_disabled':
+        return (
+          headline: 'AI parsing is turned off',
+          body: 'Enable AI features in Account to parse PDFs.',
+        );
+      case 'unsupported_file_type':
+        return (
+          headline: "Couldn't read this file",
+          body: 'Supported: PDF, image (PNG/JPEG/WebP/GIF), CSV.',
+        );
+      case 'unsupported_content':
+        return (
+          headline: "Selected model can't read this",
+          body: '${error.message} '
+              'PDF uploads work on Anthropic and Google models.',
+        );
+      default:
+        return (headline: 'Import failed', body: error.message);
     }
-    return (
-      headline: 'Import failed',
-      body: error.toString(),
-    );
   }
-
-  @override
-  Widget build(BuildContext context) {
-    final c = _content;
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Container(
-              width: 28, height: 28,
-              decoration: BoxDecoration(
-                color: bt.negBg,
-                borderRadius: const BorderRadius.all(Radius.circular(8)),
-                border: Border.all(color: bt.negBorder),
-              ),
-              alignment: Alignment.center,
-              child: BudgetIcons.build('alert',
-                  size: 14, strokeWidth: 2, color: bt.neg),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                c.headline,
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: bt.ink,
-                ),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        Container(
-          width: double.infinity,
-          decoration: BoxDecoration(
-            color: bt.surface2,
-            borderRadius: const BorderRadius.all(Radius.circular(8)),
-            border: Border.all(color: bt.rule),
-          ),
-          padding: const EdgeInsets.all(12),
-          child: Text(
-            c.body,
-            style: TextStyle(
-              fontFamily: 'monospace',
-              fontSize: 12,
-              color: bt.ink2,
-              height: 1.5,
-            ),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'No transactions were saved.',
-          style: TextStyle(fontSize: 12, color: bt.ink4),
-        ),
-        const SizedBox(height: 18),
-        _PrimaryButton(label: 'Close', onTap: onClose, bt: bt),
-      ],
-    );
-  }
+  return (headline: 'Import failed', body: error.toString());
 }
 
 // ── Shared bits ─────────────────────────────────────────────────────────────

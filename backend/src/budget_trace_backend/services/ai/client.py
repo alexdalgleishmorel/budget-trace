@@ -21,13 +21,24 @@ import os
 from typing import Any
 
 from ...features import get_me
-from .registry import (
-    DEFAULT_MODEL,
-    MODEL_REGISTRY,
-    PROVIDERS,
-    is_known_model,
-    provider_for_model,
-)
+from . import discovery
+from .registry import PROVIDERS
+
+
+class NoModelSelected(RuntimeError):
+    """Raised when an AI call is attempted but no model has been selected.
+
+    There is no default model — the user picks a provider and fetches its
+    models in Account settings, then selects one. The route layer turns this
+    into a 400 with a friendly message."""
+
+    code = "no_model_selected"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "No AI model selected. Open Account, choose a provider, fetch its "
+            "models, and pick one."
+        )
 
 
 class AiKeyMissing(RuntimeError):
@@ -58,14 +69,14 @@ class UnsupportedContent(RuntimeError):
         super().__init__(message)
 
 
-def get_selected_model() -> str:
-    """Resolution order: users.selected_model → SELECTED_MODEL env → default."""
+def get_selected_model() -> str | None:
+    """Resolution order: users.selected_model → SELECTED_MODEL env → None.
+
+    There is no hardcoded default — returns None when the user hasn't picked a
+    model yet. Callers pass the result to `chat()`, which raises
+    `NoModelSelected` on a falsy value."""
     me = get_me()
-    return (
-        me.get("selected_model")
-        or os.environ.get("SELECTED_MODEL")
-        or DEFAULT_MODEL
-    )
+    return me.get("selected_model") or os.environ.get("SELECTED_MODEL") or None
 
 
 def _resolve_key(provider_id: str) -> str | None:
@@ -110,14 +121,20 @@ def chat(
         }
 
     Raises:
+        NoModelSelected — no model picked (or it's no longer in the fetched catalog).
         AiKeyMissing — no API key for the selected model's provider.
         UnsupportedContent — provider rejected a content block (e.g. PDF on OpenAI).
-        ValueError — unknown model id.
     """
-    if not is_known_model(model):
-        raise ValueError(f"unknown model: {model!r}")
+    if not model:
+        raise NoModelSelected()
 
-    provider = provider_for_model(model)
+    provider_id = discovery.provider_of(model)
+    if provider_id is None:
+        # The model isn't in the fetched catalog (never fetched, or the
+        # provider dropped it). Treat it the same as "nothing selected".
+        raise NoModelSelected()
+
+    provider = PROVIDERS[provider_id]
     key = _resolve_key(provider.id)
     if not key:
         raise AiKeyMissing(provider.id)

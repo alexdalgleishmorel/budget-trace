@@ -31,6 +31,7 @@ class InsightsScreen extends StatefulWidget {
     super.key,
     required this.aiEnabled,
     required this.apiKeySet,
+    required this.modelSelected,
     required this.onOpenAccount,
     required this.onSpendChanged,
   });
@@ -40,11 +41,16 @@ class InsightsScreen extends StatefulWidget {
   /// chat — the user enables AI in Account to unlock it.
   final bool aiEnabled;
 
-  /// Whether the selected model's provider has an API key available
-  /// (stored on the user or present in env). When false (but AI is on),
-  /// the chat input is disabled and the empty-state guides the user to
-  /// Account instead of letting them hit a 400 on submit.
+  /// Whether the selected provider has an API key available (stored on the
+  /// user or present in env). When false (but AI is on), the chat input is
+  /// disabled and the empty-state guides the user to Account instead of
+  /// letting them hit a 400 on submit.
   final bool apiKeySet;
+
+  /// Whether a model has been picked. AI calls need both a key and a model;
+  /// when no model is selected the input is disabled and the empty-state
+  /// points the user to Account to fetch + pick one.
+  final bool modelSelected;
 
   /// Push the AccountScreen — used by the no-key empty state's CTA.
   final Future<void> Function() onOpenAccount;
@@ -449,6 +455,7 @@ class _InsightsScreenState extends State<InsightsScreen> {
                 onSubmit: _submit,
                 busy: _busy,
                 apiKeySet: widget.apiKeySet,
+                modelSelected: widget.modelSelected,
                 onOpenAccount: widget.onOpenAccount,
                 onSaveWidget: _saveWidget,
               ),
@@ -679,6 +686,7 @@ class _ChatPanel extends StatelessWidget {
     required this.onSubmit,
     required this.busy,
     required this.apiKeySet,
+    required this.modelSelected,
     required this.onOpenAccount,
     required this.onSaveWidget,
   });
@@ -691,22 +699,29 @@ class _ChatPanel extends StatelessWidget {
   final VoidCallback onSubmit;
   final bool busy;
   final bool apiKeySet;
+  final bool modelSelected;
   final Future<void> Function() onOpenAccount;
   final Future<void> Function(ChatMessage) onSaveWidget;
 
   @override
   Widget build(BuildContext context) {
     final bt = context.bt;
-    final inputEnabled = apiKeySet && !busy;
+    // Chat needs both a provider key AND a picked model. The text field stays
+    // typable whenever the user is allowed to chat (`ready`) — NOT gated on
+    // `busy`, because toggling `enabled` off mid-focus leaves the field stuck
+    // unresponsive. Only the send button respects `busy`.
+    final ready = apiKeySet && modelSelected;
     final transcriptPadX = isDesktop ? 24.0 : 18.0;
 
     return Column(
       children: [
         Expanded(
           child: messages.isEmpty
-              ? (apiKeySet
-                  ? _EmptyTranscript(bt: bt)
-                  : _NoApiKeyEmpty(bt: bt, onOpenAccount: onOpenAccount))
+              ? (!apiKeySet
+                  ? _NoApiKeyEmpty(bt: bt, onOpenAccount: onOpenAccount)
+                  : !modelSelected
+                      ? _NoModelEmpty(bt: bt, onOpenAccount: onOpenAccount)
+                      : _EmptyTranscript(bt: bt))
               : ListView.builder(
                   controller: scrollController,
                   padding: EdgeInsets.fromLTRB(
@@ -734,8 +749,10 @@ class _ChatPanel extends StatelessWidget {
             controller: controller,
             focusNode: focusNode,
             onSubmit: onSubmit,
-            enabled: inputEnabled,
+            enabled: ready,
+            canSend: ready && !busy,
             apiKeySet: apiKeySet,
+            modelSelected: modelSelected,
           ),
         ),
       ],
@@ -751,14 +768,24 @@ class _InputBar extends StatelessWidget {
     required this.focusNode,
     required this.onSubmit,
     required this.enabled,
+    required this.canSend,
     required this.apiKeySet,
+    required this.modelSelected,
   });
 
   final TextEditingController controller;
   final FocusNode focusNode;
   final VoidCallback onSubmit;
+
+  /// Whether the user may chat at all (key + model). Controls the text field —
+  /// independent of `busy` so typing never gets locked mid-response.
   final bool enabled;
+
+  /// Whether a send is allowed right now (`enabled` and not mid-response).
+  final bool canSend;
+
   final bool apiKeySet;
+  final bool modelSelected;
 
   @override
   Widget build(BuildContext context) {
@@ -785,9 +812,11 @@ class _InputBar extends StatelessWidget {
               cursorColor: bt.accent,
               style: TextStyle(fontSize: 14, color: bt.ink),
               decoration: InputDecoration(
-                hintText: apiKeySet
-                    ? 'Ask about your spending…'
-                    : 'Set an API key in Account to chat',
+                hintText: !apiKeySet
+                    ? 'Set an API key in Account to chat'
+                    : !modelSelected
+                        ? 'Pick a model in Account to chat'
+                        : 'Ask about your spending…',
                 hintStyle: TextStyle(fontSize: 14, color: bt.ink4),
                 border: InputBorder.none,
                 isCollapsed: true,
@@ -796,7 +825,7 @@ class _InputBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
-          _SendButton(enabled: enabled, onPressed: onSubmit),
+          _SendButton(enabled: canSend, onPressed: onSubmit),
         ],
       ),
     );
@@ -991,18 +1020,22 @@ class _SessionRow extends StatelessWidget {
   }
 
   static String _relativeDate(DateTime dt) {
+    // Server timestamps are UTC (…Z). Convert to local before comparing dates,
+    // otherwise a user behind UTC sees the UTC "tomorrow" and gets "-1 days".
+    final local = dt.toLocal();
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final d = DateTime(dt.year, dt.month, dt.day);
+    final d = DateTime(local.year, local.month, local.day);
     final diff = today.difference(d).inDays;
-    if (diff == 0) return 'today';
+    // Clamp tiny clock skew (timestamp slightly ahead of now) to "today".
+    if (diff <= 0) return 'today';
     if (diff == 1) return 'yesterday';
     if (diff < 7) return '$diff days ago';
     const months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-    return '${months[dt.month - 1]} ${dt.day}';
+    return '${months[local.month - 1]} ${local.day}';
   }
 }
 
@@ -1019,6 +1052,28 @@ class _NoApiKeyEmpty extends StatelessWidget {
           'Insights uses your selected AI model. Add an API key for that '
           "model's provider in Account, then come back to chat about your "
           'spending.',
+      cta: GlassButton(
+        label: 'Open Account',
+        onPressed: onOpenAccount,
+        variant: GlassButtonVariant.primary,
+        compact: true,
+      ),
+    );
+  }
+}
+
+class _NoModelEmpty extends StatelessWidget {
+  const _NoModelEmpty({required this.bt, required this.onOpenAccount});
+  final BudgetTheme bt;
+  final Future<void> Function() onOpenAccount;
+
+  @override
+  Widget build(BuildContext context) {
+    return _EmptyShell(
+      headline: 'Pick a model',
+      body:
+          'You\'ve set a key — now fetch your provider\'s models and pick one '
+          'in Account, then come back to chat about your spending.',
       cta: GlassButton(
         label: 'Open Account',
         onPressed: onOpenAccount,

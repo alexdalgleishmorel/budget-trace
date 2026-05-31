@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Expense Visualizer app icon: the brand "results" glyph (a line chart)
+       on the accent gradient tile, matching GradientIconTile in the app. -->
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#075985"/>
+      <stop offset="0.55" stop-color="#155E75"/>
+      <stop offset="1" stop-color="#115E59"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="512" height="512" rx="157" ry="157" fill="url(#accent)"/>
+  <g transform="translate(118.5,118.5) scale(11.458)" fill="none" stroke="#ffffff"
+     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 3v18h18M7 16l4-5 3 3 5-7"/>
+  </g>
+</svg>

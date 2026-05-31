@@ -135,13 +135,15 @@ Every AI call (chat, AI parser on import, auto-categorize on import) ends in [`s
 
 The chat orchestrator sums usage across every iteration of the tool-use loop and persists a single row per user prompt (rather than one per `chat()` call). `ChatResponse` returns both `cost_usd` (this turn) and `session_spent_usd` (running total for the whole session) so the frontend can update without a second round-trip. `GET /chat/sessions` and `GET /chat/sessions/{id}` both surface `spent_usd` per session via a `LEFT JOIN` against `ai_usage`.
 
-Cost is **always estimated** — `tokens × the selected model's published per-MTok price`. There is no authoritative-billing path; the chip is explicit about that. To add a new model: add an entry to `MODEL_REGISTRY` in [`services/ai/registry.py`](../backend/src/budget_trace_backend/services/ai/registry.py), restart the backend, and it shows up in `available_models` for the Settings dropdown automatically.
+Cost is **always estimated** — `tokens × the selected model's per-MTok price`, where the price comes from LiteLLM's bundled cost table at fetch time. There is no authoritative-billing path; the chip is explicit about that. A model whose rate isn't in the cost table records calls at **zero cost** (the chip then under-counts). Models aren't hardcoded — they're fetched live per provider (see below); no code change is needed when a provider ships a new one.
 
-## Model selection
+## Model selection (provider-first, no hardcoded catalog)
 
-The `selected_model` column on the user row, set via `PATCH /me`, overrides the `SELECTED_MODEL` env var which in turn overrides the registry's `DEFAULT_MODEL`. Resolution lives in [`services/ai/client.py::get_selected_model()`](../backend/src/budget_trace_backend/services/ai/client.py) — a single chokepoint that feeds chat, AI parser, and auto-categorizer. The same module's `chat()` looks up the model's provider in `MODEL_REGISTRY`, picks the matching API key (`ai_provider_keys` row first, env-var fallback second), prefixes the model id for LiteLLM (e.g. `anthropic/claude-sonnet-4-6`), and dispatches one `litellm.completion()` call. LiteLLM handles per-provider request/response translation.
+The user picks a generic provider (`selected_provider`: anthropic / openai / google) and fetches its models via `POST /me/models/refresh`, which lists the provider's live catalog and persists it to `discovered_models` — see [`services/ai/discovery.py`](../backend/src/budget_trace_backend/services/ai/discovery.py). They then pick one (`selected_model`). There is **no default model**: `get_selected_model()` in [`services/ai/client.py`](../backend/src/budget_trace_backend/services/ai/client.py) resolves `users.selected_model → SELECTED_MODEL env → None`. That single chokepoint feeds chat, AI parser, and auto-categorizer.
 
-`PATCH /me` validates the value against `MODEL_REGISTRY` so we never select a model whose cost we can't compute. It does **not** require a stored key for the picked model's provider — `selected_model_key_available` in `MeOut` lets the UI warn but the user can still save the choice ahead of pasting the key.
+`chat()` resolves the model's provider via `discovery.provider_of()` (from the fetched catalog), picks the matching API key (`ai_provider_keys` row first, env-var fallback second), prefixes the id for LiteLLM (e.g. `anthropic/claude-…`), and dispatches one `litellm.completion()` call. If the model is empty/unknown it raises `NoModelSelected` (→ `400 no_model_selected`); if the provider has no key, `AiKeyMissing` (→ `400 ai_key_missing`).
+
+`PATCH /me` validates `selected_model` against the fetched catalog (`discovery.is_known_model`) — 422 otherwise. It doesn't require a stored key to select; `selected_provider_key_available` in `MeOut` lets the UI warn while the key is pasted next.
 
 ## Common pitfalls
 

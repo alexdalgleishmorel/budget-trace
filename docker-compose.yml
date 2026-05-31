@@ -1,0 +1,25 @@
+# Run Expense Visualizer locally:
+#
+#   docker compose up --build
+#   # then open http://localhost:8000
+#
+# Data (transactions, categories, settings, API keys) persists in the named
+# `ev_data` volume across restarts. AI provider keys can be set in-app on the
+# Account screen, or passed here as environment variables — uncomment below.
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ev_data:/data
+    environment:
+      # Optional: provider keys via env instead of the Account screen.
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      # - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - BUDGET_TRACE_DB=/data/budget_trace.db
+    restart: unless-stopped
+
+volumes:
+  ev_data:

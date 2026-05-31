@@ -7,19 +7,33 @@ name = "budget-trace-backend"
 version = "0.1.0"
 description = "Chat orchestrator + MCP server for the Budget Trace Insights tab"
 requires-python = ">=3.11"
+# Versions are PINNED (==) on purpose. The AI surface depends on provider
+# request shapes that have changed between releases — e.g. LiteLLM's mapping of
+# PDF content blocks for Anthropic (an `image_url` PDF used to become a document
+# block, then started becoming an image block and 400ing; importers/ai_parser.py
+# now sends a `file` block, valid for 1.86.x). Pinning keeps a rebuilt image
+# behaving exactly like the one that was tested. Bump deliberately, then re-test
+# upload + chat against each provider. Transitive deps of these are governed by
+# each package's own pins.
 dependencies = [
-  "fastapi>=0.115",
-  "uvicorn[standard]>=0.30",
-  "pydantic>=2.7",
-  "litellm>=1.55",
-  "mcp>=1.0",
-  "python-dateutil>=2.9",
+  "fastapi==0.136.3",
+  "uvicorn[standard]==0.48.0",
+  "pydantic==2.13.4",
+  "litellm==1.86.2",
+  "mcp==1.27.2",
+  "python-dateutil==2.9.0.post0",
+  # Provider "list models" calls for the Account → Refresh models feature.
+  # anthropic/openai SDKs list their catalogs; httpx hits the Gemini REST
+  # models endpoint. All are imported lazily in services/ai/discovery.py.
+  "anthropic==0.105.2",
+  "openai==2.38.0",
+  "httpx==0.28.1",
 ]
 
 [project.optional-dependencies]
 dev = [
-  "pytest>=8.0",
-  "httpx>=0.27",
+  "pytest==9.0.3",
+  "httpx==0.28.1",
 ]
 
 [tool.setuptools.packages.find]

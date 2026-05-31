@@ -1,8 +1,28 @@
 # Running end to end
 
-Spin up the backend (Python) in one terminal, the Flutter app in another, then talk to the Insights tab. The whole stack is local-only — no auth, no remote services besides whichever AI provider you've configured (Anthropic, OpenAI, or Google Gemini).
+Two ways to run: **Docker** (one container, the V1 way to ship it to someone) or the **dev setup** (backend + Flutter as separate processes, for hacking on the code). The whole stack is local-only — no auth, no remote services besides whichever AI provider you've configured (Anthropic, OpenAI, or Google Gemini).
 
-Each section below explains *why* its commands exist, then gives you the lines to run.
+## Quick start — Docker (recommended for just running it)
+
+One image builds the Flutter web bundle and serves it from the FastAPI backend on a single port. Your data — transactions, categories, settings, and API keys — lives in a named Docker volume (`ev_data`) and survives restarts.
+
+```sh
+# From the repo root:
+docker compose up --build
+# then open http://localhost:8000
+```
+
+That's the whole setup. There is no separate database step — the backend creates `/data/budget_trace.db` (schema + Budget root + the single user row) on first boot.
+
+- **AI keys:** set them in-app on the Account screen (they persist in the volume), or pass them as environment variables in `docker-compose.yml` (uncomment the `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` lines).
+- **Reset to a clean slate:** `docker compose down -v` removes the volume (and all your data).
+- **Without compose:** `docker build -t expense-visualizer . && docker run -p 8000:8000 -v ev_data:/data expense-visualizer`.
+
+### Developer mode (live reload, in Docker)
+
+`docker compose -f docker-compose.dev.yml up --build` runs both halves with the source bind-mounted and **auto-reload on save**: the API on `:8000` (uvicorn `--reload`) and the Flutter dev server on `:8080` (a container-side `inotify` watcher hot-restarts the app on every `.dart` save — see [`scripts/dev-web.sh`](../scripts/dev-web.sh)). The dev DB is a separate `ev_dev_data` volume. The first web compile is slow (~30–60s); later saves hot-restart in seconds. The `backend-dev` / `web-dev` image stages live in the [`Dockerfile`](../Dockerfile).
+
+The rest of this doc covers the **dev setup**: running the backend and Flutter app as separate processes for fast iteration. Each section explains *why* its commands exist, then gives you the lines to run.
 
 ## Prerequisites
 
