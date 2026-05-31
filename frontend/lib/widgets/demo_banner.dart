@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/api_base.dart';
 import '../theme/app_theme.dart';
@@ -7,6 +8,13 @@ import 'glass.dart';
 /// Where the explainer modal points people to run the real app.
 const String kDemoRepoUrl =
     'https://github.com/alexdalgleishmorel/budget-trace#readme';
+
+/// Open the repo README in a new tab / the system browser. Best-effort —
+/// silently no-ops if the platform can't launch a URL.
+Future<void> _openRepo() async {
+  final uri = Uri.parse(kDemoRepoUrl);
+  await launchUrl(uri, mode: LaunchMode.externalApplication);
+}
 
 /// A slim, app-wide banner shown only in the static demo build ([kDemoMode]).
 ///
@@ -106,11 +114,26 @@ class _DemoInfoModal extends StatelessWidget {
       child: GlassModalShell(
         title: 'About this demo',
         onClose: onClose,
-        footer: GlassButton(
-          label: 'Got it',
-          variant: GlassButtonVariant.primary,
-          expand: true,
-          onPressed: onClose,
+        footer: Row(
+          children: [
+            Expanded(
+              child: GlassButton(
+                label: 'Got it',
+                variant: GlassButtonVariant.secondary,
+                expand: true,
+                onPressed: onClose,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: GlassButton(
+                label: 'Set it up on GitHub',
+                variant: GlassButtonVariant.primary,
+                expand: true,
+                onPressed: _openRepo,
+              ),
+            ),
+          ],
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -147,12 +170,30 @@ class _DemoInfoModal extends StatelessWidget {
               style: bodyStyle,
             ),
             const SizedBox(height: 10),
-            SelectableText(
-              kDemoRepoUrl,
-              style: TextStyle(
-                color: bt.accent,
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
+            InkWell(
+              onTap: _openRepo,
+              borderRadius: BorderRadius.circular(6),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(
+                      child: Text(
+                        kDemoRepoUrl,
+                        style: TextStyle(
+                          color: bt.accent,
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w600,
+                          decoration: TextDecoration.underline,
+                          decorationColor: bt.accent,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(Icons.open_in_new, size: 15, color: bt.accent),
+                  ],
+                ),
               ),
             ),
           ],

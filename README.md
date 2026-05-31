@@ -13,47 +13,131 @@ See [`docs/`](docs/README.md) for architecture and conventions, and
 [`docs/running-end-to-end.md`](docs/running-end-to-end.md) for a step-by-step
 walkthrough with a comment above every command.
 
-## Run it with Docker (recommended)
-
-One container builds the Flutter web app and serves it together with the API on
-a single port. Your data — transactions, categories, settings, and API keys —
-lives in a named Docker volume (`ev_data`) and survives restarts.
-
-**Prerequisites:** [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-(or any Docker engine with Compose v2).
+## Quick start (if you already use Docker)
 
 ```sh
-# From the repo root:
-docker compose up --build
-
-# Then open:
-#   http://localhost:8000
+docker compose up --build      # run from the project folder
+# then open http://localhost:8000
 ```
 
-That's the whole setup. There's no separate database step — the backend creates
-`/data/budget_trace.db` (schema + the single user row) on first boot and starts
-empty. Add your transactions by uploading statements on the **Expenses** tab
-(CSV always works; PDF/image need an AI key — see below).
+Everything below is the same thing, explained step by step for a first-timer.
 
-### AI features (optional)
+## Set it up — step by step (no coding experience needed)
 
-AI parsing, auto-categorize, and the Insights chat need an API key for one
-provider (Anthropic, OpenAI, or Google Gemini). Two ways to provide it:
+You don't need to know how to code. You'll install **one** free program (Docker),
+download this project, and run a single command. Plan for about 15 minutes —
+most of it is just waiting for things to download the first time.
 
-- **In the app** — open **Account**, pick a model, paste the key for that
-  provider. It persists in the volume. *(Recommended.)*
-- **As an environment variable** — uncomment the relevant line in
-  [`docker-compose.yml`](docker-compose.yml) and set it in your shell:
+When it's done, the app runs **entirely on your own computer**. Your transactions
+and settings never leave your machine.
 
-  ```sh
-  ANTHROPIC_API_KEY=sk-ant-... docker compose up --build
-  ```
+### 1. Install Docker Desktop
 
-Get a key at
-[console.anthropic.com](https://console.anthropic.com/) ·
-[platform.openai.com](https://platform.openai.com/api-keys) ·
-[aistudio.google.com](https://aistudio.google.com/app/apikey).
-CSV upload works without any key.
+Docker is a free program that runs apps like this one in a self-contained box, so
+you don't have to install Python, databases, or anything else yourself.
+
+1. Go to **[docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/)**
+   and download Docker Desktop for your system (Mac or Windows).
+2. Open the downloaded file and follow the installer (just click through the
+   defaults).
+3. **Start Docker Desktop** (from your Applications/Start menu) and wait until it
+   says it's **running** — on Mac you'll see a small whale icon 🐳 in the top
+   menu bar; on Windows, in the bottom-right system tray. Keep it running while
+   you use the app.
+
+> On Windows it may ask to install/enable "WSL 2" — say yes and follow its
+> prompt. This is normal and one-time.
+
+### 2. Download Expense Visualizer
+
+1. On the project's GitHub page, click the green **`< > Code`** button near the
+   top.
+2. Click **Download ZIP**.
+3. Find the downloaded `budget-trace-main.zip` (usually in your **Downloads**
+   folder) and **unzip** it — double-click it on Mac, or right-click → "Extract
+   All" on Windows. You'll get a folder named **`budget-trace-main`**.
+
+### 3. Open a terminal inside that folder
+
+A "terminal" is just a window where you type one command. You need it pointed at
+the project folder.
+
+- **Mac:** Open the **Terminal** app (press `Cmd`+`Space`, type `Terminal`,
+  press Enter). Then type `cd ` (the letters c, d, and a space), drag the
+  `budget-trace-main` folder from Finder onto the Terminal window (it pastes the
+  location), and press **Enter**.
+- **Windows:** Open the `budget-trace-main` folder in File Explorer. Click the
+  address bar at the top, type `cmd`, and press **Enter** — a black terminal
+  window opens already pointed at that folder.
+
+### 4. Start the app
+
+Type this exactly and press **Enter**:
+
+```sh
+docker compose up --build
+```
+
+The **first time**, this downloads and builds everything, which can take **5–15
+minutes** depending on your internet — that's normal, and only happens once.
+You'll see lots of text scrolling. When it's ready you'll see a line like:
+
+```
+api-1  | Uvicorn running on http://0.0.0.0:8000
+```
+
+Leave this window open — it's running the app.
+
+### 5. Open it in your browser
+
+Go to **[http://localhost:8000](http://localhost:8000)**. That's the app! 🎉
+
+It starts empty. Add transactions by uploading a statement on the **Expenses**
+tab — a CSV export from your bank works with no extra setup. (PDF and image
+statements need an AI key — next step.)
+
+### 6. (Optional) Turn on the AI features
+
+The Insights chat, PDF/image import, and auto-categorize need a key from one AI
+provider. You only need **one**:
+
+- **Anthropic (Claude)** — [console.anthropic.com](https://console.anthropic.com/)
+- **OpenAI (ChatGPT)** — [platform.openai.com/api-keys](https://platform.openai.com/api-keys)
+- **Google (Gemini)** — [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+
+Create an account there, generate an **API key** (a long secret string), then in
+Expense Visualizer open the **Account** tab, turn on **AI features**, pick that
+provider, paste the key, and click **Fetch models** to choose a model. The key is
+stored only on your computer.
+
+> Provider keys are usage-based and may cost a small amount per request — check
+> the provider's pricing. CSV upload and everything else works with no key.
+
+### Stopping and starting again
+
+- **Stop:** click the terminal window and press `Ctrl`+`C` (Mac too — it's
+  Control, not Command). Or, in a new terminal in the same folder, run
+  `docker compose down`.
+- **Start again later:** open a terminal in the folder and run
+  `docker compose up` (no `--build` needed after the first time — it's much
+  faster), then reopen [http://localhost:8000](http://localhost:8000).
+
+Your data is saved between runs (see [Resetting your data](#resetting-your-data-wipe-the-volume)
+to start fresh).
+
+### If something goes wrong
+
+- **`docker: command not found` or "Cannot connect to the Docker daemon":**
+  Docker Desktop isn't running. Open it and wait for the whale icon to say
+  "running", then try again.
+- **"port is already allocated" / can't open the page:** something else is using
+  port 8000. Edit [`docker-compose.yml`](docker-compose.yml), change `8000:8000`
+  to `3000:8000`, rerun `docker compose up --build`, and open
+  [http://localhost:3000](http://localhost:3000) instead.
+- **The build seems stuck:** the first build is genuinely slow (it downloads a
+  few GB). As long as text is still appearing now and then, let it finish.
+- **Make sure you're in the right folder:** the command only works from inside
+  `budget-trace-main` (the folder that contains the file `docker-compose.yml`).
 
 ### Everyday commands
 
