@@ -9,8 +9,20 @@ on your own machine — your data never leaves it.
 > Internal package names keep the legacy `budget_trace` identifier; only the
 > user-facing name is "Expense Visualizer".
 
-See [`docs/`](docs/README.md) for architecture and conventions, and
-[`docs/running-end-to-end.md`](docs/running-end-to-end.md) for a step-by-step
+## Try the live demo (no install)
+
+A browser-only demo runs on GitHub Pages — click around without installing
+anything:
+
+**→ [alexdalgleishmorel.github.io/budget-trace](https://alexdalgleishmorel.github.io/budget-trace/)**
+
+The demo uses an in-memory mock backend: data resets on every reload, and the AI
+replies and upload results are canned. To use your own data — with real storage,
+CSV import, and live AI — run it locally with the steps below.
+
+See [`docs/`](docs/README.md) for architecture and conventions
+([`docs/architecture.md`](docs/architecture.md) is the high-level diagram tour),
+and [`docs/running-end-to-end.md`](docs/running-end-to-end.md) for a step-by-step
 walkthrough with a comment above every command.
 
 ## Live demo
@@ -140,9 +152,12 @@ provider. You only need **one**:
 - **Google (Gemini)** — [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
 
 Create an account there, generate an **API key** (a long secret string), then in
-Expense Visualizer open the **Account** tab, turn on **AI features**, pick that
-provider, paste the key, and click **Fetch models** to choose a model. The key is
-stored only on your computer.
+Expense Visualizer open **Account** (the gear icon in the nav), turn on **AI
+features**, pick that provider, paste the key, and click **Fetch models** to
+choose a model. The key is stored only on your computer.
+
+> Importing **PDF** statements needs Anthropic or Google — OpenAI models can read
+> image statements but not PDFs. CSV import never needs a key at all.
 
 > Provider keys are usage-based and may cost a small amount per request — check
 > the provider's pricing. CSV upload and everything else works with no key.
