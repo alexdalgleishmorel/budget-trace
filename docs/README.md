@@ -11,7 +11,7 @@ in code, it's almost always one of those internal identifiers.
 | File | When to read |
 |------|--------------|
 | [running-end-to-end.md](running-end-to-end.md) | Just trying to run the thing. Step-by-step with a comment above every command. |
-| [architecture.md](architecture.md) | First-time onboarding. Walks through the whole stack and one round-trip of a `/chat` request. |
+| [architecture.md](architecture.md) | First-time onboarding. High-level Mermaid-diagram tour: the stack, the backend, a `/chat` round-trip, upload/auto-categorize, the data model. |
 | [rest-api.md](rest-api.md) | The full Categories + Transactions + `/me` REST surface. |
 | [upload.md](upload.md) | CSV format, dedupe semantics, AI parser + auto-categorize. |
 | [insights-ai.md](insights-ai.md) | Touching the AI chat loop, MCP tool surface, prompt, response shape. |
